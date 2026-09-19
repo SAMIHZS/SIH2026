@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SIH26171 Privacy Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <div class="logo-row">
+        <div class="shield-icon">🛡️</div>
+        <h1>Privacy Assistant</h1>
+      </div>
+      <p class="subtitle">SIH26171</p>
+    </div>
+    
+    <div class="toggle-section">
+      <div class="toggle-row">
+        <span class="toggle-label">Privacy Protection</span>
+        <label class="switch" for="privacyToggle">
+          <input type="checkbox" id="privacyToggle" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <p class="status-text" id="statusText">Active — detecting & sanitizing PII</p>
+    </div>
+    
+    <div class="stats-section" id="statsSection">
+      <div class="stat-row">
+        <span class="stat-label">Detections</span>
+        <span class="stat-value" id="detectionCount">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Status</span>
+        <span class="stat-value stat-safe" id="privacyStatus">Safe</span>
+      </div>
+    </div>
+    
+    <div class="actions-section">
+      <button class="btn-sidebar" id="openSidebar">Open Assistant Sidebar</button>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Unit Tests — Detectors (SIH26171)</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; }
+    h1 { font-size: 20px; margin-bottom: 16px; }
+    .test-case { background: #1e293b; padding: 12px; margin-bottom: 8px; border-radius: 6px; font-size: 14px; }
+    .pass { border-left: 4px solid #22c55e; }
+    .fail { border-left: 4px solid #ef4444; color: #fca5a5; }
+    .status { font-weight: bold; margin-right: 8px; }
+    .status.pass { color: #22c55e; }
+    .status.fail { color: #ef4444; }
+  </style>
+  <script src="../extension/detectors/domDetector.js"></script>
+  <script src="../extension/detectors/regexDetector.js"></script>
+</head>
+<body>
+  <h1>Detection Pipeline Unit Tests</h1>
+  <div id="results"></div>
+
+  <!-- Hidden Fixtures for Testing -->
+  <div id="test-fixture" style="opacity: 0.01; position: absolute; pointer-events: none;">
+    <input type="password" id="t-pwd" value="Secret123!" autocomplete="current-password" />
+    <input type="email" id="t-email" value="alex.sample@test.org" />
+    <input type="tel" id="t-tel" value="+1-800-555-0199" />
+    <input type="text" id="t-cc" name="cardnumber" value="4111222233334444" />
+    <p id="t-p">Contact support at support@enterprise.com or call (555) 234-5678 immediately.</p>
+  </div>
+
+  <script>
+    const results = document.getElementById('results');
+
+    function assert(name, condition, details = '') {
+      const div = document.createElement('div');
+      div.className = `test-case ${condition ? 'pass' : 'fail'}`;
+      div.innerHTML = `<span class="status ${condition ? 'pass' : 'fail'}">${condition ? 'PASS' : 'FAIL'}</span> ${name} ${details ? `<br><small>${details}</small>` : ''}`;
+      results.appendChild(div);
+      return condition;
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      // Test 1: DOM Detector finds password input
+      const domDets = window.SIH_DomDetector.runDomDetector();
+      const pwdFound = domDets.some(d => d.type === 'password' && d.source === 'dom');
+      assert("DOM Detector: Password input flagged", pwdFound);
+
+      // Test 2: DOM Detector identifies email input
+      const emailFound = domDets.some(d => d.type === 'email' && d.source === 'dom');
+      assert("DOM Detector: Email field detected", emailFound);
+
+      // Test 3: DOM Detector identifies tel input
+      const telFound = domDets.some(d => d.type === 'phone' && d.source === 'dom');
+      assert("DOM Detector: Phone field detected", telFound);
+
+      // Test 4: Regex Detector finds email in text
+      const regexDets = window.SIH_RegexDetector.runRegexDetector();
+      const textEmailFound = regexDets.some(d => d.type === 'email' && (d.value || '').includes('support@enterprise.com'));
+      assert("Regex Detector: Email in innerText detected", textEmailFound);
+
+      // Test 5: Regex Detector finds phone in text
+      const textPhoneFound = regexDets.some(d => d.type === 'phone' && (d.value || '').includes('234-5678'));
+      assert("Regex Detector: Phone in innerText detected", textPhoneFound);
+
+      // Test 6: Confidence is between 0 and 1
+      const confOk = [...domDets, ...regexDets].every(d => typeof d.confidence === 'number' && d.confidence >= 0 && d.confidence <= 1);
+      assert("Contract: All detections have valid confidence (0..1)", confOk);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Unit Tests — Action Validator (SIH26171)</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; }
+    h1 { font-size: 20px; margin-bottom: 16px; }
+    .test-case { background: #1e293b; padding: 12px; margin-bottom: 8px; border-radius: 6px; font-size: 14px; }
+    .pass { border-left: 4px solid #22c55e; }
+    .fail { border-left: 4px solid #ef4444; color: #fca5a5; }
+    .status { font-weight: bold; margin-right: 8px; }
+    .status.pass { color: #22c55e; }
+    .status.fail { color: #ef4444; }
+  </style>
+  <script src="../extension/validate.js"></script>
+</head>
+<body>
+  <h1>Action Validation Tests</h1>
+  <div id="results"></div>
+
+  <!-- Test Targets -->
+  <button id="valid-btn">Submit Form</button>
+  <input type="text" id="valid-input" placeholder="Name" />
+  <input type="password" id="protected-pwd" value="secret" />
+
+  <script>
+    const results = document.getElementById('results');
+
+    function assert(name, condition, details = '') {
+      const div = document.createElement('div');
+      div.className = `test-case ${condition ? 'pass' : 'fail'}`;
+      div.innerHTML = `<span class="status ${condition ? 'pass' : 'fail'}">${condition ? 'PASS' : 'FAIL'}</span> ${name} ${details ? `<br><small>${details}</small>` : ''}`;
+      results.appendChild(div);
+      return condition;
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      // Test 1: Valid click action allowed
+      const clickRes = window.SIH_Validator.validateAction({
+        action: 'click',
+        target: '#valid-btn'
+      });
+      assert("Allowlist: Valid click action allowed", clickRes.allowed, clickRes.reason);
+
+      // Test 2: Valid type action allowed
+      const typeRes = window.SIH_Validator.validateAction({
+        action: 'type',
+        target: '#valid-input',
+        value: 'Test Query'
+      });
+      assert("Allowlist: Valid type action allowed", typeRes.allowed, typeRes.reason);
+
+      // Test 3: Disallowed action 'eval' rejected
+      const evalRes = window.SIH_Validator.validateAction({
+        action: 'eval',
+        target: '#valid-btn',
+        value: 'alert(1)'
+      });
+      assert("Security: 'eval' action rejected", !evalRes.allowed, `Reason: ${evalRes.reason}`);
+
+      // Test 4: Disallowed action 'script' rejected
+      const scriptRes = window.SIH_Validator.validateAction({
+        action: 'script',
+        target: '#valid-btn'
+      });
+      assert("Security: 'script' action rejected", !scriptRes.allowed, `Reason: ${scriptRes.reason}`);
+
+      // Test 5: Non-existent target rejected
+      const ghostRes = window.SIH_Validator.validateAction({
+        action: 'click',
+        target: '#non-existent-button-xyz'
+      });
+      assert("Integrity: Non-existent target selector rejected", !ghostRes.allowed, `Reason: ${ghostRes.reason}`);
+
+      // Test 6: Sensitive/protected target (password input) rejected
+      const pwdRes = window.SIH_Validator.validateAction({
+        action: 'type',
+        target: '#protected-pwd',
+        value: 'NewPassword!'
+      });
+      assert("Protection: Sensitive password field interaction rejected", !pwdRes.allowed, `Reason: ${pwdRes.reason}`);
+    });
+  </script>
+</body>
+</html>

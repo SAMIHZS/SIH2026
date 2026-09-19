@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Unit Tests — Sanitizer (SIH26171)</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; }
+    h1 { font-size: 20px; margin-bottom: 16px; }
+    .test-case { background: #1e293b; padding: 12px; margin-bottom: 8px; border-radius: 6px; font-size: 14px; }
+    .pass { border-left: 4px solid #22c55e; }
+    .fail { border-left: 4px solid #ef4444; color: #fca5a5; }
+    .status { font-weight: bold; margin-right: 8px; }
+    .status.pass { color: #22c55e; }
+    .status.fail { color: #ef4444; }
+    pre { background: #0a0f1d; padding: 8px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin-top: 6px; }
+  </style>
+  <script src="../extension/sanitize.js"></script>
+</head>
+<body>
+  <h1>Sanitization Pipeline Tests</h1>
+  <div id="results"></div>
+
+  <!-- Test Fixture -->
+  <div id="content-container">
+    <div id="user-info">User Jane Doe with email jane@secure.org and phone 555-987-6543.</div>
+    <div style="display: none;" id="hidden-secret">SUPER_SECRET_TOKEN_DO_NOT_LEAK</div>
+  </div>
+
+  <script>
+    const results = document.getElementById('results');
+
+    function assert(name, condition, details = '') {
+      const div = document.createElement('div');
+      div.className = `test-case ${condition ? 'pass' : 'fail'}`;
+      div.innerHTML = `<span class="status ${condition ? 'pass' : 'fail'}">${condition ? 'PASS' : 'FAIL'}</span> ${name} ${details ? `<pre>${details}</pre>` : ''}`;
+      results.appendChild(div);
+      return condition;
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const mockDetections = [
+        {
+          elementId: 'user-info',
+          type: 'email',
+          value: 'jane@secure.org',
+          source: 'regex',
+          confidence: 0.95
+        },
+        {
+          elementId: 'user-info',
+          type: 'phone',
+          value: '555-987-6543',
+          source: 'regex',
+          confidence: 0.9
+        }
+      ];
+
+      // Execute Sanitizer
+      const sanitizedContext = window.SIH_Sanitizer.buildSanitizedContext(mockDetections, null);
+
+      // Invariant 1: No raw email in output
+      const rawEmailFound = JSON.stringify(sanitizedContext).includes('jane@secure.org');
+      assert("Invariant 1: Raw email not found in SanitizedContext", !rawEmailFound);
+
+      // Invariant 2: No raw phone in output
+      const rawPhoneFound = JSON.stringify(sanitizedContext).includes('555-987-6543');
+      assert("Invariant 2: Raw phone not found in SanitizedContext", !rawPhoneFound);
+
+      // Invariant 3: Replacement tokens present in sanitized text
+      const hasEmailToken = (sanitizedContext.text || '').includes('[EMAIL_1]');
+      const hasPhoneToken = (sanitizedContext.text || '').includes('[PHONE_1]');
+      assert("Tokenization: Replaced with [EMAIL_1] and [PHONE_1]", hasEmailToken && hasPhoneToken, `Sanitized text: ${sanitizedContext.text}`);
+
+      // Invariant 4: Hidden DOM content is excluded
+      const leakedHidden = JSON.stringify(sanitizedContext).includes('SUPER_SECRET_TOKEN_DO_NOT_LEAK');
+      assert("Rule 1.6: Hidden DOM content excluded from context", !leakedHidden);
+
+      // Invariant 5: Conforms to SanitizedContext schema
+      const validSchema = sanitizedContext.page && typeof sanitizedContext.page.title === 'string' &&
+                          Array.isArray(sanitizedContext.elements) && typeof sanitizedContext.text === 'string';
+      assert("Contract: Conforms to frozen SanitizedContext schema", validSchema);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+.env
+*.pyc
+__pycache__/
+SIH26171_MD_Pack.zip
+.venv/
+venv/
+node_modules/

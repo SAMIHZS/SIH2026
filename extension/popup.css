@@ -1,0 +1,172 @@
+/* Popup Styles — SIH26171 */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #0f1117;
+  color: #e4e4e7;
+  width: 300px;
+  min-height: 200px;
+}
+
+.popup-container {
+  padding: 16px;
+}
+
+.popup-header {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.logo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shield-icon {
+  font-size: 22px;
+}
+
+h1 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f4f4f5;
+}
+
+.subtitle {
+  font-size: 11px;
+  color: #71717a;
+  margin-top: 2px;
+  margin-left: 30px;
+}
+
+/* Toggle */
+.toggle-section {
+  margin-bottom: 14px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.toggle-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #3f3f46;
+  transition: 0.3s;
+  border-radius: 24px;
+}
+
+.slider:before {
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: #fafafa;
+  transition: 0.3s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: #22c55e;
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+.status-text {
+  font-size: 11px;
+  color: #22c55e;
+  margin-top: 6px;
+}
+
+.status-text.disabled {
+  color: #ef4444;
+}
+
+/* Stats */
+.stats-section {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #a1a1aa;
+}
+
+.stat-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f4f4f5;
+}
+
+.stat-safe {
+  color: #22c55e;
+}
+
+/* Button */
+.actions-section {
+  margin-top: 4px;
+}
+
+.btn-sidebar {
+  width: 100%;
+  padding: 10px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-sidebar:hover {
+  opacity: 0.9;
+}
+
+.btn-sidebar:active {
+  opacity: 0.8;
+}
