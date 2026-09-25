@@ -238,7 +238,7 @@
   padding-bottom: 20px;
 }
 
-.message-group + .message-group {
+.message-group+.message-group {
   border-top: 1px solid var(--border-subtle);
   padding-top: 20px;
 }
@@ -345,12 +345,27 @@
   animation: pulse-dot 1.2s ease-in-out infinite;
 }
 
-.streaming-dot:nth-child(2) { animation-delay: 0.2s; }
-.streaming-dot:nth-child(3) { animation-delay: 0.4s; }
+.streaming-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.streaming-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
 
 @keyframes pulse-dot {
-  0%, 80%, 100% { opacity: 0.3; transform: scale(0.85); }
-  40% { opacity: 1; transform: scale(1); }
+
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
+
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* Action Receipt */
@@ -370,7 +385,9 @@
   margin-bottom: 3px;
 }
 
-.action-label { color: var(--text-secondary); }
+.action-label {
+  color: var(--text-secondary);
+}
 
 .action-target {
   font-family: var(--font-mono);
@@ -383,8 +400,13 @@
   margin-top: 4px;
 }
 
-.action-status.success { color: var(--success); }
-.action-status.failed { color: var(--danger); }
+.action-status.success {
+  color: var(--success);
+}
+
+.action-status.failed {
+  color: var(--danger);
+}
 
 /* ════════════════════════
    SECURITY BANNER
@@ -450,10 +472,18 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.details-row:last-child { border-bottom: none; }
+.details-row:last-child {
+  border-bottom: none;
+}
 
-.details-type { color: var(--text-secondary); font-weight: 500; }
-.details-badge { color: var(--text-tertiary); }
+.details-type {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.details-badge {
+  color: var(--text-tertiary);
+}
 
 /* ════════════════════════
    AI CONTEXT CONTROLS
@@ -561,12 +591,12 @@
   transition: transform 0.2s ease, background 0.2s ease;
 }
 
-.context-switch input:checked + .context-slider {
+.context-switch input:checked+.context-slider {
   background: var(--accent);
   border-color: var(--accent);
 }
 
-.context-switch input:checked + .context-slider::before {
+.context-switch input:checked+.context-slider::before {
   transform: translateX(15px);
   background: #fff;
 }
@@ -643,4 +673,97 @@
   background: var(--surface-hover);
   color: var(--text-tertiary);
   cursor: default;
+}
+
+/* ════════════════════════
+   MODEL SELECTOR
+════════════════════════ */
+.model-selector-container {
+  padding: 8px 16px;
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sidebar-model-select {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+/* ════════════════════════
+   CONFIRMATION DIALOG
+════════════════════════ */
+.confirmation-dialog {
+  margin: 10px 20px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.confirmation-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--warning);
+  margin-bottom: 8px;
+}
+
+.confirmation-body {
+  font-size: 12px;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.confirmation-target {
+  font-weight: 600;
+  margin: 4px 0;
+  word-break: break-all;
+}
+
+.confirmation-target-domain {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.confirmation-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.confirm-cancel {
+  padding: 6px 12px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.confirm-allow {
+  padding: 6px 12px;
+  background: var(--warning);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #000;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.header-btn.spinning {
+  animation: spin 1s linear infinite;
+  color: var(--accent);
+}
+
+@keyframes spin {
+  100% {
+    transform: rotate(360deg);
+  }
 }

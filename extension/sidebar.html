@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="theme.css">
   <link rel="stylesheet" href="sidebar.css">
   <script src="theme.js"></script>
+  <script src="logger.js"></script>
 </head>
 <body>
   <div class="sidebar-container">
@@ -28,6 +29,12 @@
         </div>
       </div>
       <div class="sidebar-header-right">
+        <button class="header-btn" id="refreshBtn" type="button" aria-label="Refresh Context" title="Refresh Context">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+        </button>
         <button class="header-btn" id="settingsBtn" type="button" aria-label="Settings" title="Settings">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
@@ -42,6 +49,14 @@
         </button>
       </div>
     </header>
+
+    <!-- Model Selector -->
+    <div class="model-selector-container">
+      <label for="sidebarModelSelect" class="sr-only">Model</label>
+      <select id="sidebarModelSelect" class="sidebar-model-select">
+        <option value="">Loading models...</option>
+      </select>
+    </div>
 
     <!-- Main Workspace -->
     <main class="sidebar-main">
@@ -73,6 +88,20 @@
 
       <!-- Conversation Stream -->
       <div class="conversation-stream" id="conversationStream" style="display: none;"></div>
+      
+      <!-- Confirmation Dialog -->
+      <div class="confirmation-dialog" id="confirmationDialog" style="display: none;">
+        <div class="confirmation-header">Action requires approval</div>
+        <div class="confirmation-body">
+          <p class="confirmation-text">The assistant wants to:</p>
+          <p class="confirmation-target" id="confirmationActionDesc">Click "Submit Application"</p>
+          <p class="confirmation-target-domain" id="confirmationDomain">Website: example.com</p>
+        </div>
+        <div class="confirmation-actions">
+          <button type="button" id="confirmCancelBtn" class="confirm-cancel">Cancel</button>
+          <button type="button" id="confirmAllowBtn" class="confirm-allow">Allow</button>
+        </div>
+      </div>
     </main>
 
     <!-- Security Context (Compact bottom bar) -->

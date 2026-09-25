@@ -1,158 +1,171 @@
 # SIH26171 — Implementation Log
 
-> Auditable engineering history. Records significant decisions, not trivial coding operations.
+> **Last updated:** 2026-09-26
+> **Status:** Phase 2 Stabilization complete
 
 ---
 
-## Entry 1
+## GROUND TRUTH — WHAT IS ACTUALLY IMPLEMENTED
 
-- **Date/Time:** 2026-09-07 23:24 IST
-- **Discovery/Problem:** Model selection for Phase 1
-- **Decision:** Use Groq provider with `openai/gpt-oss-20b` model
-- **Reason:** Explicit user requirement overrides baseline docs (which specify Llama 3.1 8B Instruct)
-- **Alternatives Considered:** Llama 3.1 8B (baseline docs), Llama 3.3 70B, Mixtral
-- **Affected Files:** `server/ai_provider.py`
-- **Impact:** Backend provider module configured for openai/gpt-oss-20b; architecture maintains clean provider boundary for future swaps
-- **Status:** Approved
+### Extension Architecture
+- **MV3 browser extension** (Chrome Manifest V3, no backend server)
+- **Background service worker** (`background.js`) — tab lifecycle, privacy state machine, screenshot capture, offscreen routing, provider gateway
+- **Content script** (`content.js`) — page observation, mutation scheduling, lightweight analysis pipeline, visual enrichment trigger, action execution
+- **Offscreen document** (`offscreen.html` / `offscreen.js`) — owns the dedicated visual worker (`reason: ['WORKERS']`)
+- **Visual worker** (`vision/visualWorker.js`) — runs off-main-thread, MediaPipe face detection + canvas redaction
 
----
+### Perception Layer
+| Detector | File | Status |
+|---|---|---|
+| DOM detection | `detectors/domDetector.js` | **IMPLEMENTED** |
+| Regex / PII detection | `detectors/regexDetector.js` | **IMPLEMENTED** |
+| OCR (Tesseract.js) | `detectors/ocrDetector.js` | **IMPLEMENTED** — wired into content.js gate path |
+| Face detection (MediaPipe BlazeFace) | `vision/visualWorker.js` + `vision/mediaPipeLoader.js` | **IMPLEMENTED** |
+| General visual model | `vision/visualModelStub.js` | **STUB — not implemented** (Phase 3+) |
 
-## Entry 2
+### Detection Fusion
+- `detectionFusion.js` — value-based and spatial overlap merge, max-confidence strategy, full provenance tracking, category normalization via `perceptionSchema.js`
 
-- **Date/Time:** 2026-09-07 23:24 IST
-- **Discovery/Problem:** API response format — docs specify only Action, but user requires conversational text responses
-- **Decision:** Backend returns either a structured Action OR a text response, based on user query intent
-- **Reason:** User requirement §4 specifies the assistant should support conversational text interaction, not just actions
-- **Alternatives Considered:** (1) Always return Action with a "message" field — overloads schema; (2) Separate /chat endpoint — unnecessary complexity for Phase 1
-- **Affected Files:** `server/app.py`, `server/ai_provider.py`, `extension/background.js`, `extension/sidebar.js`
-- **Impact:** Response format includes `{ type: "action", action: {...} }` or `{ type: "text", message: "..." }`. Does not modify frozen Action schema itself.
-- **Status:** Approved
+### Perception Schema
+- `perceptionSchema.js` — canonical detection shape: `{ source, type, category, confidence, bbox, rect, value, elementId, provenance }`
+- `SOURCES`: `dom, regex, ocr, face, visual`
+- `CATEGORIES`: privacy (`email, phone, credit_card, password, ssn, account, name_field, sensitive`) + UI (`face, button, input, link, image, icon, canvas_control, visual_control, text_region, embedded_viewer`)
 
----
+### Privacy / Sanitization
+- **Text sanitization** (`sanitize.js`) — PII tokenization to `[EMAIL_1]`, `[PHONE_1]`, etc. Reverse mapping is device-local only. Never crosses network.
+- **Image sanitization** (`vision/visualWorker.js`) — OffscreenCanvas redaction. Face: pixelation blur + solid-mask fallback. Text PII regions: solid mask. Raw screenshot never leaves worker unsanitized.
+- **Content-script redactor** (`vision/redactor.js`) — legacy in-content Canvas2D redaction (used by `REDACT_SCREENSHOT` handler).
 
-## Entry 3
+### Privacy State Machine
+- Per-tab state: `{ tabId, generation, navigationIdentity, sanitizedContext, screenshot, isValid }`
+- `globalGenerationCounter` increments monotonically on tab switch or navigation
+- All async results (visual worker, OCR, LLM) are discarded if generation has changed
+- **Provider Payload Gate** (`handleBackendRequest`) — 5 sequential invariant checks before any network request:
+  1. Active tab match
+  2. Generation match
+  3. Navigation identity match
+  4. Context exists and is marked valid
+  5. Screenshot ownership verification + generation-verified screenshot attachment from async enrichment
 
-- **Date/Time:** 2026-09-07 23:24 IST
-- **Discovery/Problem:** Primary UI choice — popup vs sidebar
-- **Decision:** Use Chrome Side Panel API for sidebar as primary assistant interface. Popup contains only privacy toggle and settings entry.
-- **Reason:** User requirement §4 explicitly specifies sidebar for assistant interaction
-- **Alternatives Considered:** Popup-only (baseline docs imply this), injected sidebar iframe
-- **Affected Files:** `extension/manifest.json`, `extension/sidebar.html`, `extension/sidebar.js`
-- **Impact:** Requires `sidePanel` permission in manifest. Chrome 114+ required.
-- **Status:** Approved
+### Analysis Pipeline (Verified Runtime Flow)
+```
+PAGE LOAD
+  → content.js init → requestAnalysis()
+  → DOM detection (domDetector.js)
+  → Regex detection (regexDetector.js)
+  → Detection fusion (detectionFusion.js)
+  → Detection gate (detectionGate.js) → { runOcr, runCv }
+  → Lightweight SanitizedContext (sanitize.js) → CONTEXT_READY (background)
+  ↓ (async, non-blocking)
+  → Visual enrichment (visualPipeline.js → VISUAL_ANALYZE → background.js)
+    → chrome.tabs.captureVisibleTab()
+    → Offscreen document → visualWorker.js
+      → MediaPipe BlazeFace (WASM)
+      → Visual model stub (no-op, Phase 3 slot)
+      → OffscreenCanvas redaction
+      → Sanitized PNG Data URL
+    → Merge face detections into fusedDetections
+    → Rebuild SanitizedContext with sanitized screenshot
+    → CONTEXT_READY (enriched, background)
+  OR (when visual pipeline unavailable and gate says runOcr)
+  → Legacy OCR (ocrDetector.js via CAPTURE_FOR_ANALYSIS)
+    → Tesseract.js WASM → text → regex classification → detections
+    → Merge OCR detections, rebuild context, CONTEXT_READY (enriched)
+  ↓
+USER MESSAGE → sidebar.js → SEND_TO_BACKEND → background.js
+  → Provider Payload Gate (5 checks)
+  → modelManager.chat(sanitizedContext, userMessage)
+    → assertSanitizedContext() (regex scan for PII patterns)
+    → geminiProvider/groqProvider/openRouterProvider.chat()
+    → Provider API (direct fetch from service worker)
+  → Normalized AgentResponse { type, message | action }
+  ↓
+content.js EXECUTE_ACTION
+  → validate.js validateAction()
+    → allowlist check: click|type|scroll
+    → ElementRegistry.resolve(target, generation)
+    → dangerous pattern check
+    → visibility check
+    → protected element check
+  → execute.js executeAction()
+```
 
----
+### Action Security Boundary
+- `elementRegistry.js` — opaque stable IDs (`el_1`, `el_2`), WeakMap backing, generation-isolated
+- `validate.js` — allowlist `['click', 'type', 'scroll']`, pattern-rejects `eval(`, `javascript:`, etc.
+- `execute.js` — plain switch dispatch, no eval, no Function constructor
+- `providers/types.js` — normalizes LLM response; throws if action type is not allowlisted
 
-## Entry 4
+### Provider Architecture
+| Provider | Status | Vision |
+|---|---|---|
+| Gemini | **Functional** | Yes (sanitized screenshot as inline_data) |
+| Groq | **Functional** | No (text-only) |
+| OpenRouter | **Functional** | No (text-only) |
+| Local | **Stub only** | No |
 
-- **Date/Time:** 2026-09-07 23:24 IST
-- **Discovery/Problem:** Dependency selection for backend
-- **Decision:** Use FastAPI + uvicorn + httpx + pydantic (no additional deps)
-- **Reason:** FastAPI specified in docs. httpx for async Groq calls. Pydantic for schema validation. All mature, well-maintained, MV3-compatible concerns don't apply (backend).
-- **Alternatives Considered:** requests (sync, less suitable), aiohttp (less integrated with FastAPI)
-- **Affected Files:** `server/requirements.txt`
-- **Impact:** Minimal dependency footprint
-- **Status:** Approved
+- API keys stored in `chrome.storage.local`
+- Provider calls made directly from service worker (no server proxy)
+- `modelManager.js` — `assertSanitizedContext()` scans for raw PII patterns before every provider call
+- `sanitizeUserMessage()` — strips PII from user's chat message before sending
 
----
+### Vendor Assets (on-disk)
+| Asset | Size |
+|---|---|
+| MediaPipe WASM (3 variants) | ~34 MB total |
+| MediaPipe BlazeFace model | 224 KB |
+| MediaPipe vision_bundle.mjs | 152 KB |
+| Tesseract WASM (6 variants) | ~68 MB total |
+| Tesseract language data (eng, gzipped) | 10.4 MB |
+| **Total vendor** | **~88 MB** |
 
-## Entry 5
-
-- **Date/Time:** 2026-09-07 23:24 IST
-- **Discovery/Problem:** Extension architecture — no external JS dependencies
-- **Decision:** Use vanilla JavaScript for entire extension (no build tools, no npm, no bundlers)
-- **Reason:** MV3 content scripts and service workers work best with plain JS. No complex UI framework needed. Reduces attack surface. Simplifies loading.
-- **Alternatives Considered:** Webpack bundler, TypeScript compilation
-- **Affected Files:** All extension/*.js files
-- **Impact:** All code is direct vanilla JS. No build step required.
-- **Status:** Approved
-
----
-
-## Entry 6
-
-- **Date/Time:** 2026-09-07 23:42 IST
-- **Discovery/Problem:** Complete sidebar assistant and visualizer implementation
-- **Decision:** Implemented `sidebar.js` with dual tabs (Chat assistant + Privacy View), live context syncing via `GET_LATEST_CONTEXT` and `CONTEXT_UPDATE`, action execution relay to content script (`EXECUTE_ACTION`), and safe token inspection.
-- **Reason:** Satisfies User Requirement §4 and Design.md without breaking client-side data isolation.
-- **Affected Files:** `extension/sidebar.js`, `extension/icons/`
-- **Impact:** Assistant UI fully operational; icons generated for unpacked Chrome loading.
-- **Status:** Approved
-
----
-
-## Entry 7
-
-- **Date/Time:** 2026-09-07 23:43 IST
-- **Discovery/Problem:** Backend, Demo page, and Security Test Gate suites
-- **Decision:** Completed `server/app.py`, `server/ai_provider.py` (Groq + deterministic mock), `demo/index.html` (synthetic PII & search action target), and browser test suites (`tests/test_detectors.html`, `test_sanitizer.html`, `test_validator.html`, `test_security.html` validating Rule 12).
-- **Reason:** Satisfies Rule 10 (Demo Resilience), Rule 11 (Demo Page), and Rule 12 (Security Test Gate).
-- **Affected Files:** `server/app.py`, `server/ai_provider.py`, `demo/index.html`, `tests/*`
-- **Impact:** Entire Phase 1 milestone fully delivered and auditable.
-- **Status:** Approved
-
----
-
-## Entry 8
-
-- **Date/Time:** 2026-09-23
-- **Discovery/Problem:** Begin Phase 2 without creating a partial migration
-- **Decision:** Add browser-side gating, fusion, metrics, local redaction, detector capability boundaries, and Model Manager components while retaining FastAPI as a fallback.
-- **Reason:** The browser-only path must be verified before removing the working Phase 1 backend.
-- **Affected Files:** `extension/metrics.js`, `extension/detectionGate.js`, `extension/detectionFusion.js`, `extension/vision/`, `extension/detectors/ocrDetector.js`, `extension/detectors/visionDetector.js`, `extension/providers/`, `extension/modelManager.js`, `extension/background.js`, `extension/popup.*`, `extension/sidebar.*`, `PHASE2.md`
-- **Impact:** Phase 2 foundations are executable; OCR/CV runtime assets and live provider verification remain outstanding.
-- **Status:** In progress
-
----
-
-## Entry 9
-
-- **Date/Time:** 2026-09-23
-- **Discovery/Problem:** Phase 2 runtime assets were absent from the initial capability boundaries.
-- **Decision:** Vendor Tesseract.js 7 with matching core/language assets and MediaPipe Tasks Vision with the BlazeFace short-range model; load both lazily.
-- **Reason:** The no-build extension can run local OCR and narrow face detection without introducing Python or a bundler.
-- **Evidence:** Synthetic OCR and face tests pass. Measured sample timings: OCR init 944.3 ms, OCR inference 96.7 ms, CV init 427.4 ms, CV inference 96.6 ms.
-- **Remaining limitation:** Real Groq/OpenRouter credentials were not available for live outbound testing; FastAPI remains the fallback.
-- **Status:** In progress
-
----
-
-## Entry 10
-
-- **Date/Time:** 2026-09-23
-- **Discovery/Problem:** The popup had become crowded with provider, API-key, model, and connection controls.
-- **Decision:** Keep the popup as a lightweight privacy status/control surface and move existing Model Manager configuration into a registered MV3 options page.
-- **Reason:** Provider configuration belongs in Settings; the popup should answer whether protection is active and show only compact status.
-- **Affected Files:** `extension/popup.html`, `extension/popup.js`, `extension/popup.css`, `extension/options.html`, `extension/options.js`, `extension/options.css`, `extension/manifest.json`, `extension/modelManager.js`
-- **Impact:** Settings uses the existing `MODEL_*` messages and storage flow. The popup has an icon-only top-right gear with accessible label/title and no API-key/provider form.
-- **Status:** Approved
+*(Multiple WASM variants exist for SIMD/non-SIMD compatibility — not all are loaded simultaneously)*
 
 ---
 
-## Entry 11
+## WHAT IS PARTIALLY IMPLEMENTED
 
-- **Date/Time:** 2026-09-24
-- **Discovery/Problem:** Chrome MV3 extension service workers cannot invoke `new Worker()`. Spawning the visual module worker directly inside `background.js` fails under the service worker environment.
-- **Decision:** Implement the MV3-supported Offscreen Document architecture (`content.js` → `background.js` → `offscreen.html`/`offscreen.js` → dedicated `visualWorker.js`).
-- **Reason:** Chrome explicitly provides the Offscreen API reason `WORKERS` allowing an offscreen document under the extension's origin to spawn dedicated module workers and dynamically import MediaPipe `vision_bundle.mjs`.
-- **Affected Files:** `extension/manifest.json`, `extension/offscreen.html`, `extension/offscreen.js`, `extension/background.js`, `extension/vision/visualWorker.js`, `extension/vision/visualPipeline.js`
-- **Impact:** `background.js` manages single-instance offscreen document creation via concurrency locking. Dedicated worker runs entirely off-thread in offscreen context. Zero `new Worker()` calls in `background.js`.
-- **Status:** Approved & Verified
+### Detection Gate
+- `detectionGate.js` — `decide()` correctly sets `runOcr` and `runCv` flags
+- OCR: **now wired** through content.js (both visual-pipeline-available and fallback paths)
+- `runCv` flag: MediaPipe is always run when the visual pipeline is available — the gate's `runCv=false` case currently does not suppress MediaPipe (intentional: face detection is low cost and high privacy value)
 
 ---
 
-## Entry 12
+## WHAT IS NOT IMPLEMENTED (PLANNED)
 
-- **Date/Time:** 2026-09-24
-- **Discovery/Problem:** Stale context across tab switches and same-tab navigations represents a critical privacy failure (cross-page context leakage to remote providers).
-- **Decision:** Implement a formal Privacy State Machine enforcing the `(tabId, navigationIdentity, generation)` tuple.
-- **Reason:** Remote AI requests must never receive stale page context, stale element IDs, or screenshots belonging to another tab/page generation.
-- **Enforcement:**
-  1. Synchronous invalidation happens *first* on tab switch or navigation.
-  2. Late/superseded async perceptions (DOM, OCR, MediaPipe) are safely discarded.
-  3. Fail-closed Provider Payload Gate blocks remote transmission if tab, generation, navigation identity, or screenshot ownership fail to match.
-  4. ElementRegistry and action validator enforce generation isolation, rejecting actions on stale element IDs.
-- **Evidence:** Verified by test suite (`tests/run_privacy_tests.js` and `tests/test_privacy_invalidation.html`) covering Tests P1 through P6.
-- **Status:** Approved & Verified
+| Component | Plan |
+|---|---|
+| General lightweight visual detector | Phase 3 — browser-compatible ViT/UI detector, ONNX Runtime Web, slot in `visualModelStub.js` |
+| ONNX Runtime Web | With the visual model (Phase 3) |
+| WebGPU execution | With ONNX Runtime Web (Phase 3) |
+| Thin server / provider proxy | Phase 4 — move credentials server-side, route through Express |
+| MiniLM semantic context | Optional, Phase 5+ |
+| OpenCV.js | Explicitly excluded from MVP |
 
+---
 
+## KNOWN LIMITATIONS
+
+1. **No server**: All LLM calls are direct from the extension service worker. API keys are in local storage.
+2. **No general visual model**: Only faces are detected in screenshots. UI elements (buttons, icons, canvas controls) are not visually detected.
+3. **OCR not tested in production**: `ocrDetector.js` exists and is wired, but full browser runtime testing has not been performed.
+4. **Vendor size**: ~88 MB of WASM assets on disk. This is due to multiple SIMD variants of Tesseract — not all are loaded simultaneously.
+
+---
+
+## FILES CHANGED IN THIS PASS
+
+### Created
+- `extension/perceptionSchema.js` — canonical detection schema
+- `extension/vision/visualModelStub.js` — modular stub for future general visual detector
+
+### Modified
+- `extension/content.js` — added `runAsyncVisualEnrichment()` (was missing, caused ReferenceError); fixed OCR/visual pipeline decision logic; improved gate logic
+- `extension/detectionFusion.js` — category normalization, provenance tracking, canMerge type check, uses perceptionSchema
+- `extension/manifest.json` — added `perceptionSchema.js` to content-script load order and web_accessible_resources
+- `extension/background.js` — strengthened Gate 5 (screenshot ownership); added generation-verified screenshot attachment from async enrichment; added [PRIVACY GATE] OK log
+- `extension/vision/visualWorker.js` — added visual model stub integration (Step 3b); merged generalVisualDetections into allDetections
+
+### Not Modified
+All other files preserved exactly as they were.

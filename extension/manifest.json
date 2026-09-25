@@ -23,6 +23,7 @@
       "matches": ["<all_urls>"],
       "js": [
         "theme.js",
+        "logger.js",
         "detectors/domDetector.js",
         "detectors/regexDetector.js",
         "detectors/ocrDetector.js",
@@ -30,6 +31,7 @@
         "vision/mediaPipeLoader.js",
         "vision/visualPipeline.js",
         "metrics.js",
+        "perceptionSchema.js",
         "detectionGate.js",
         "detectionFusion.js",
         "vision/redactor.js",
@@ -64,7 +66,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["vendor/**", "vision/**"],
+      "resources": ["vendor/**", "vision/**", "perceptionSchema.js"],
       "matches": ["<all_urls>"]
     }
   ]

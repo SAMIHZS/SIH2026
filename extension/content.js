@@ -103,10 +103,16 @@
         return false;
 
       case 'GET_CONTEXT':
-        console.info(`[CONTEXT FLOW] background -> content GET_CONTEXT (tab gen=${currentAnalysisGeneration}, msg gen=${message.generation})`);
+        if (window.SIH_Logger) window.SIH_Logger.log('CONTEXT', `background -> content GET_CONTEXT (tab gen=${currentAnalysisGeneration}, msg gen=${message.generation})`);
         if (typeof message.generation === 'number' && message.generation > currentAnalysisGeneration) {
           currentAnalysisGeneration = message.generation;
           window.SIH_ElementRegistry?.setContextGeneration?.(currentAnalysisGeneration, window.location.href);
+        }
+
+        // If force refresh requested, clear cached context
+        if (message.forceRefresh) {
+          currentSanitizedContext = null;
+          analysisState = 'IDLE'; // Ensure we can run again immediately
         }
 
         // If lightweight or enriched context is already available, respond immediately
@@ -411,33 +417,50 @@
       // ─────────────────────────────────────────────────────────────────
       // STAGE 2: ASYNCHRONOUS VISUAL PERCEPTION & ENRICHMENT
       // ─────────────────────────────────────────────────────────────────
-      const visualPipelineAvailable = Boolean(window.SIH_VisualPipeline?.isAvailable());
-      const shouldRunVisual = visualPipelineAvailable &&
-        ((gateDecision?.runOcr || gateDecision?.runCv) || gateInput.imageCount > 0);
+      // Visual enrichment runs ONLY when the gate determines it is needed.
+      // It never blocks Stage 1 lightweight context — chat can begin immediately.
+      //
+      // Decision logic:
+      //   runCv=true OR imageCount>0  →  run visual pipeline (MediaPipe face detection)
+      //   runOcr=true                 →  if visual pipeline available: pass rects to worker
+      //                                  if visual pipeline unavailable: run legacy OCR in-process
+      //
+      // The visual pipeline also runs OCR internally via the offscreen worker (future).
+      // For now, OCR text-extraction runs in-process via runLegacyOcr when gate triggers.
 
-      if (shouldRunVisual) {
-        // Run visual pipeline asynchronously in background — does NOT block chat
+      const visualPipelineAvailable = Boolean(window.SIH_VisualPipeline?.isAvailable());
+      const needsVisual = gateDecision?.runCv || gateInput.imageCount > 0;
+      const needsOcr    = gateDecision?.runOcr;
+
+      if (needsVisual && visualPipelineAvailable) {
+        // Run visual pipeline (screenshot + MediaPipe + future general visual model)
+        // asynchronously in background — does NOT block chat
+        console.info(`[PERCEPTION] gen=${generation} visual enrichment triggered (CV=${needsVisual} OCR=${needsOcr})`);
         runAsyncVisualEnrichment(generation, fusedDetections, gateDecision, metrics);
-      } else if (!shouldRunVisual && gateDecision?.runOcr && window.SIH_OcrDetector?.isAvailable()) {
+      } else if (needsOcr && window.SIH_OcrDetector?.isAvailable()) {
+        // OCR fallback path: runs in-process when visual pipeline is unavailable
+        // or when gate only requires OCR (no visual evidence / canvas).
+        console.info(`[PERCEPTION] gen=${generation} OCR-only path triggered (visualPipeline=${visualPipelineAvailable})`);
         runLegacyOcr(metrics).then((legacyOcrResult) => {
           if (generation !== currentAnalysisGeneration) return;
-          if (legacyOcrResult.detections.length > 0) {
-            currentDetections = window.SIH_DetectionFusion
-              ? window.SIH_DetectionFusion.fuse([...currentDetections, ...legacyOcrResult.detections])
-              : [...currentDetections, ...legacyOcrResult.detections];
-            currentSanitizedContext = window.SIH_Sanitizer.buildSanitizedContext(currentDetections, null);
-            chrome.runtime.sendMessage({
-              type: 'CONTEXT_READY',
-              sanitizedContext: currentSanitizedContext,
-              detectionCount: currentDetections.length,
-              mapping: window.SIH_Sanitizer?.SIH_SanitizerState?.getDetectionSummary?.() || [],
-              metrics: latestMetrics,
-              gateDecision: latestGateDecision,
-              url: window.location.href,
-              generation,
-              isEnriched: true
-            }).catch(() => {});
-          }
+          if (!legacyOcrResult.available || legacyOcrResult.detections.length === 0) return;
+          console.info(`[PERCEPTION] gen=${generation} OCR returned ${legacyOcrResult.detections.length} detections`);
+          currentDetections = window.SIH_DetectionFusion
+            ? window.SIH_DetectionFusion.fuse([...currentDetections, ...legacyOcrResult.detections])
+            : [...currentDetections, ...legacyOcrResult.detections];
+          currentSanitizedContext = window.SIH_Sanitizer.buildSanitizedContext(currentDetections, null);
+          chrome.runtime.sendMessage({
+            type: 'CONTEXT_READY',
+            sanitizedContext: currentSanitizedContext,
+            detectionCount: currentDetections.length,
+            mapping: window.SIH_Sanitizer?.SIH_SanitizerState?.getDetectionSummary?.() || [],
+            metrics: latestMetrics,
+            gateDecision: latestGateDecision,
+            url: window.location.href,
+            generation,
+            isEnriched: true,
+            enrichedBy: 'ocr'
+          }).catch(() => {});
         });
       }
       
@@ -454,6 +477,138 @@
           requestAnalysis({ immediate: false });
         }
       }
+    }
+  }
+
+  /**
+   * Asynchronous Visual Enrichment Pipeline.
+   *
+   * Sends a VISUAL_ANALYZE request to the background service worker.
+   * The background captures a screenshot, dispatches it to the offscreen
+   * visual worker (MediaPipe face detection + future general visual model),
+   * and returns a sanitized screenshot + visual detections.
+   *
+   * On success:
+   *   - Merges visual detections into currentDetections via fusionFusion
+   *   - Rebuilds SanitizedContext including the sanitized screenshot
+   *   - Publishes enriched CONTEXT_READY to background
+   *
+   * On any failure:
+   *   - Fails closed: never attaches an unsanitized screenshot
+   *   - Does NOT affect the already-published lightweight context
+   *   - Logs structured diagnostic output
+   *
+   * @param {number} generation         — stale-guard token
+   * @param {Array}  baseDetections     — fused DOM+Regex detections to pass as safe rects
+   * @param {object} gateDecision       — { runOcr, runCv, ... }
+   * @param {object} metrics            — SIH_Metrics instance
+   */
+  async function runAsyncVisualEnrichment(generation, baseDetections, gateDecision, metrics) {
+    const t_start = performance.now();
+    try {
+      // Build geometry-only safe rects (raw values intentionally stripped by visualPipeline.analyze)
+      const existingRects = (baseDetections || [])
+        .filter(d => d.rect && typeof d.rect.x === 'number')
+        .map(d => ({
+          type: d.type,
+          source: d.source,
+          x: d.rect.x,
+          y: d.rect.y,
+          width: d.rect.width,
+          height: d.rect.height,
+          confidence: d.confidence
+          // NOTE: raw 'value' field intentionally EXCLUDED from rects
+        }));
+
+      const viewport = {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        scrollX: window.scrollX || 0,
+        scrollY: window.scrollY || 0
+      };
+
+      // Delegate: background captures screenshot + runs visual worker
+      const visualResult = await window.SIH_VisualPipeline.analyze(
+        null,          // dataUrl ignored — background captures fresh
+        viewport,
+        existingRects,
+        generation
+      );
+
+      // Stale guard: discard if page changed during async pipeline
+      if (generation !== currentAnalysisGeneration) {
+        console.info(`[PERCEPTION] gen=${generation} visual enrichment discarded (superseded by gen=${currentAnalysisGeneration})`);
+        return;
+      }
+
+      const visualDetections = Array.isArray(visualResult?.detections) ? visualResult.detections : [];
+      const sanitizedDataUrl = visualResult?.sanitizedDataUrl || null;
+
+      // Fail-closed: if visual pipeline encountered an error and returned no sanitized screenshot,
+      // we do NOT fall back to attaching an unsanitized screenshot.
+      if (visualResult?.error && !sanitizedDataUrl) {
+        console.info(`[PERCEPTION] gen=${generation} visual enrichment: pipeline error, fail-closed (no screenshot attached). backend=${visualResult.backend}`);
+        // Even without a screenshot, merge any face detections that were captured
+        if (visualDetections.length > 0) {
+          currentDetections = window.SIH_DetectionFusion
+            ? window.SIH_DetectionFusion.fuse([...currentDetections, ...visualDetections])
+            : [...currentDetections, ...visualDetections];
+          currentSanitizedContext = window.SIH_Sanitizer.buildSanitizedContext(currentDetections, null);
+        }
+        return;
+      }
+
+      const t_visual = performance.now() - t_start;
+      console.info(
+        `[PERCEPTION] gen=${generation} visual enrichment done: ` +
+        `backend=${visualResult?.backend} faces=${visualDetections.filter(d => d.type === 'face').length} ` +
+        `screenshot=${sanitizedDataUrl ? 'sanitized' : 'none'} totalMs=${t_visual.toFixed(1)}`
+      );
+
+      // Merge visual detections with existing
+      const mergedDetections = window.SIH_DetectionFusion
+        ? window.SIH_DetectionFusion.fuse([...currentDetections, ...visualDetections])
+        : [...currentDetections, ...visualDetections];
+
+      // Rebuild sanitized context — now includes the sanitized screenshot
+      const enrichedContext = window.SIH_Sanitizer.buildSanitizedContext(
+        mergedDetections,
+        sanitizedDataUrl   // sanitized screenshot from visual worker (may be null)
+      );
+
+      // Final stale guard before publishing
+      if (generation !== currentAnalysisGeneration) {
+        console.info(`[PERCEPTION] gen=${generation} visual enrichment publish discarded (superseded)`);
+        return;
+      }
+
+      // Update module-level state
+      currentDetections = mergedDetections;
+      currentSanitizedContext = enrichedContext;
+
+      console.info(
+        `[PRIVACY] gen=${generation} screenshot sanitized: ${sanitizedDataUrl ? 'TRUE' : 'NONE'}. ` +
+        `Total detections after enrichment: ${currentDetections.length}`
+      );
+
+      // Publish enriched context (background will merge into tab state)
+      chrome.runtime.sendMessage({
+        type: 'CONTEXT_READY',
+        sanitizedContext: enrichedContext,
+        detectionCount: currentDetections.length,
+        mapping: window.SIH_Sanitizer?.SIH_SanitizerState?.getDetectionSummary?.() || [],
+        metrics: latestMetrics,
+        gateDecision: latestGateDecision,
+        url: window.location.href,
+        generation,
+        isEnriched: true,
+        enrichedBy: 'visual'
+      }).catch(() => {});
+
+    } catch (err) {
+      // Visual enrichment failure is non-fatal — lightweight context remains valid
+      console.warn(`[PERCEPTION] gen=${generation} visual enrichment error (non-fatal):`, err?.message || err);
+      // Fail closed: do NOT attach any screenshot on error
     }
   }
 

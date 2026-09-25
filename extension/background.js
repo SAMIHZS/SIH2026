@@ -1,4 +1,5 @@
 importScripts(
+  'logger.js',
   'providers/types.js',
   'providers/groqProvider.js',
   'providers/openRouterProvider.js',
@@ -119,7 +120,7 @@ function invalidateTabContext(tabId, reason = 'unknown', newUrl = '') {
     });
   }
 
-  console.info(`[PRIVACY STATE] CONTEXT INVALIDATED Tab: ${tabId} Generation: ${nextGen} Reason: ${reason}`);
+  self.SIH_Logger.log('PRIVACY', `CONTEXT INVALIDATED Tab: ${tabId} Generation: ${nextGen} Reason: ${reason}`);
   return nextGen;
 }
 
@@ -234,7 +235,7 @@ chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
   const newGen = invalidateTabContext(tabId, 'tab_activated');
   const currentState = tabPerceptionState.get(tabId);
 
-  console.info(`[SIH][tabs.onActivated] tabId=${tabId} prevTabId=${prevTabId} gen=${newGen}`);
+  self.SIH_Logger.log('LIFECYCLE', `tabs.onActivated tabId=${tabId} prevTabId=${prevTabId} gen=${newGen}`);
 
   // 3. Immediately broadcast CONTEXT_INVALIDATED to sidebar/popup
   broadcastToExtensionPages({
@@ -383,6 +384,58 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   switch (message.type) {
+    case 'REQUEST_CONTEXT_REFRESH': {
+      const tabId = message.tabId || activeTabId;
+      if (!tabId) {
+        sendResponse({ ok: false, error: 'No active tab' });
+        return false;
+      }
+      const t0 = performance.now();
+      const currentState = tabPerceptionState.get(tabId);
+      const newGen = invalidateTabContext(tabId, 'manual_refresh', currentState?.navigationIdentity);
+      
+      broadcastToExtensionPages({
+        type: 'CONTEXT_INVALIDATED',
+        tabId,
+        generation: newGen,
+        navigationIdentity: currentState?.navigationIdentity,
+        reason: 'manual_refresh',
+        t0
+      });
+      
+      // Request new context with forceRefresh
+      setTimeout(() => {
+        if (tabId === activeTabId) {
+          chrome.tabs.sendMessage(tabId, { type: 'GET_CONTEXT', generation: newGen, forceRefresh: true }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.warn('[SIH] Failed to fetch refreshed tab context:', chrome.runtime.lastError.message);
+            } else if (response && response.sanitizedContext) {
+              // Simulate CONTEXT_READY
+              const state = tabPerceptionState.get(tabId);
+              if (state && state.generation === newGen) {
+                state.sanitizedContext = response.sanitizedContext;
+                state.mapping = response.mapping || [];
+                state.detectionCount = response.detections ? response.detections.length : 0;
+                state.isValid = true;
+                
+                broadcastToExtensionPages({
+                  type: 'CONTEXT_UPDATE',
+                  tabId,
+                  generation: newGen,
+                  navigationIdentity: state.navigationIdentity,
+                  sanitizedContext: state.sanitizedContext,
+                  detectionCount: state.detectionCount,
+                  mapping: state.mapping
+                });
+              }
+            }
+          });
+        }
+      }, 50);
+      
+      sendResponse({ ok: true, newGeneration: newGen });
+      return false;
+    }
 
     case 'CONTEXT_READY': {
       const callerTabId = sender.tab?.id;
@@ -721,15 +774,33 @@ async function handleBackendRequest(message, sender) {
   }
 
   // Gate 5: Screenshot ownership & sanitization assertion
+  //
+  // The context may be from the lightweight (pre-enrichment) publish that has no screenshot yet,
+  // but the tab state may now have a generation-verified sanitized screenshot from async enrichment.
+  // If so, attach it to the provider call — it is already generation-verified by VISUAL_ANALYZE.
+  //
+  // If the context already carries a screenshot, verify it matches the tab state's screenshot
+  // (ensures no cross-generation or external screenshot can be injected).
   if (sanitizedContext.screenshot) {
     if (typeof sanitizedContext.screenshot !== 'string' || !sanitizedContext.screenshot.startsWith('data:image/')) {
-      return failClosed('Screenshot is not a valid local data URL');
+      return failClosed('Screenshot in context is not a valid local data URL');
     }
-    // Verify screenshot belongs to current generation
     if (!activeState.screenshot || activeState.screenshot !== sanitizedContext.screenshot) {
-      return failClosed('Screenshot data does not match active page generation');
+      return failClosed('Screenshot data does not match active page generation — cross-generation injection blocked');
     }
+  } else if (activeState.screenshot && typeof activeState.screenshot === 'string' && activeState.screenshot.startsWith('data:image/')) {
+    // Attach generation-verified sanitized screenshot from async visual enrichment
+    // The screenshot was written to activeState.screenshot only after passing through the
+    // visual worker and generation check in the VISUAL_ANALYZE handler.
+    sanitizedContext.screenshot = activeState.screenshot;
+    console.info(`[PRIVACY GATE] Attaching generation-verified sanitized screenshot to provider context (gen=${activeState.generation})`);
   }
+
+  console.info(
+    `[PRIVACY GATE] OK — tab=${requestTabId} gen=${activeState.generation} ` +
+    `screenshot=${sanitizedContext.screenshot ? 'SANITIZED' : 'NONE'} ` +
+    `elements=${sanitizedContext.elements?.length || 0}`
+  );
 
   const modelConfig = await modelManager.getConfig();
   const selectedProvider = modelConfig.providers[modelConfig.selectedProvider];

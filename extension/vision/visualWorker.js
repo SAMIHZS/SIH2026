@@ -31,6 +31,28 @@
 let mediapipeRuntime = null;      // { detector } or null
 let mediapipeLoadPromise = null;  // single in-flight load
 let workerReady = false;
+let visualModelRuntime = null;    // future: general lightweight visual model
+
+/* ── Visual model stub import (lazy) ─────────────────────────────────────────
+ * The stub is a no-op until a real ONNX model artifact is integrated.
+ * Import path is resolved at worker init time via the same extension origin.
+ */
+let _visualModelStubLoaded = false;
+async function getVisualModelStub() {
+  if (_visualModelStubLoaded) return self.SIH_VisualModelStub || null;
+  try {
+    // The stub sets self.SIH_VisualModelStub on load.
+    // Dynamic import works in module workers under extension CSP.
+    // Resolve URL relative to the extension origin (same as visualWorker.js).
+    const stubUrl = new URL('./visualModelStub.js', import.meta.url).href;
+    await import(stubUrl);
+    _visualModelStubLoaded = true;
+  } catch (e) {
+    // Stub unavailable — continue without general visual model
+    _visualModelStubLoaded = true; // mark as attempted so we don't retry
+  }
+  return self.SIH_VisualModelStub || null;
+}
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* Message dispatch                                                            */
@@ -127,9 +149,33 @@ async function handleAnalyze(msg) {
       error: cvError ? 'ERROR_PRESENT' : null
     });
 
-    // ── Step 4: Sanitize the canvas in-place ───────────────────────────────
+    // ── Step 3b: General visual model (stub — no-op until model is integrated) ──
+    // When a real model is selected, replace visualModelStub.js.
+    // The detection output merges into allDetections below.
+    const cvGeneralStart = performance.now();
+    let generalVisualDetections = [];
+    try {
+      const stub = await getVisualModelStub();
+      if (stub && stub.isAvailable()) {
+        // Real model path (future)
+        const generalResult = await stub.runInference(canvas, { confidenceThreshold: 0.5 });
+        if (generalResult?.available && Array.isArray(generalResult.detections)) {
+          generalVisualDetections = generalResult.detections;
+          postDiagnostic(id, 'general_visual_result', {
+            available: true,
+            count: generalVisualDetections.length,
+            cvGeneralMs: (performance.now() - cvGeneralStart).toFixed(1)
+          });
+        }
+      }
+      // Stub always returns available=false — this branch is effectively a no-op in Phase 2
+    } catch (_stubErr) {
+      // Never let general visual model failure affect the main pipeline
+    }
+    timings.cvGeneralMs = performance.now() - cvGeneralStart;
+
     const sanitizeStart = performance.now();
-    const allDetections = [...faceDetections];
+    const allDetections = [...faceDetections, ...generalVisualDetections];
 
     // Also include any text PII rects passed in from the content script
     // (already in viewport-relative coords from DOM/regex detectors).
