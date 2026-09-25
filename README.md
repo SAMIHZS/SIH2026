@@ -1,6 +1,6 @@
 # SIH26171 Privacy Browser Assistant
 
-SIH26171 is a privacy-first Chrome browser assistant that understands webpages and performs safe, validated browser actions without sending raw personal information or raw visual data to remote AI models.
+SIH26171 is a privacy-first Chrome browser assistant that understands webpages and performs safe, validated browser actions. It detects and sanitizes page context locally before remote reasoning. When screenshot sharing is enabled, a locally redacted screenshot can also be sent to the Gemini provider; screenshot sharing is controlled in the extension settings.
 
 ## The Architecture
 
@@ -39,12 +39,12 @@ The extension executes detection, visual processing, redaction, and action valid
 ## Core Principles
 
 - **Local PII Protection:** DOM attributes and visible text are inspected directly inside the extension.
-- **Sanitized Network Boundary:** Only placeholder tokens such as `[EMAIL_1]` and `[PHONE_1]` cross the network.
+- **Sanitized Network Boundary:** Page text is tokenized before provider requests; optional Gemini vision requests may include a locally redacted screenshot.
 - **Local Visual Pipeline:** OCR (Tesseract WASM) and face detection (MediaPipe) run 100% locally from vendored extension assets.
-- **Direct Local Redaction:** Screenshots are redacted on a device-local canvas before any external transmission.
+- **Direct Local Redaction:** Screenshots are redacted on a device-local canvas before any optional external transmission.
 - **Authoritative Action Targets:** Interactive elements are mapped through a persistent `ElementRegistry` (`el_a_1`, `el_a_2`), preventing arbitrary CSS selector injection.
 - **Restricted Capabilities:** Allowed actions are strictly constrained to `click`, `type`, and `scroll`.
-- **Credential Isolation:** API keys reside solely in `chrome.storage.local` within privileged service worker contexts.
+- **Credential Isolation:** User-entered API keys are stored in `chrome.storage.local` and used by privileged extension code.
 - **Vanilla MV3:** Zero external runtime dependencies or build steps required.
 
 ## Repository Layout
@@ -74,7 +74,7 @@ SIH26171_MD_Pack/       Product, architecture, rules, and technical specificatio
 
 - Google Chrome 114 or newer (supports Side Panel API and Manifest V3).
 - No Python runtime or build step required.
-- API keys (optional): Groq, OpenRouter, or Google Gemini can be configured in extension Settings. Without an API key, an offline deterministic fallback is available.
+- API keys (optional): Groq, OpenRouter, or Google Gemini can be configured in extension Settings. Without a remote API key, the local deterministic provider is available.
 
 ## Installation & Setup
 
@@ -98,7 +98,7 @@ cd SIH2026
 1. Right-click the extension icon and choose **Options** (or click Settings in the popup).
 2. Select your preferred provider: **Google Gemini**, **Groq**, or **OpenRouter**.
 3. Enter your API key and select a model. Keys are saved locally in `chrome.storage.local`.
-4. Click **Test Connection** to verify provider access.
+4. Click **Test Connection** to verify provider access. Screenshot sharing can be controlled in Settings; when enabled and Gemini is selected, redacted visual context may be sent to Google.
 
 ## Running the Demo
 
@@ -137,6 +137,6 @@ With the static server running (`http://localhost:8089`), open any test suite in
 - **Untrusted External Data:** Webpage content and remote model outputs are strictly untrusted.
 - **No Remote Code Execution:** The extension rejects `eval()`, `new Function()`, script injection, and arbitrary DOM selectors.
 - **Authoritative Resolution:** Model-proposed actions must reference valid, active targets from `ElementRegistry` (`el_a_N`).
-- **Complete Visual Isolation:** Raw screenshot pixels and raw OCR text never leave the device.
+- **Visual privacy:** OCR and redaction run locally. Raw screenshots are not attached to provider requests; a locally redacted screenshot may be attached to Gemini requests when screenshot sharing is enabled.
 
 For full architecture specs and developer rules, see [`SIH26171_MD_Pack/`](SIH26171_MD_Pack/README.md).
