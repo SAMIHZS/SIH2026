@@ -1,48 +1,76 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SIH26171 Privacy Assistant</title>
+  <title>Privacy Assistant</title>
+  <link rel="stylesheet" href="theme.css">
   <link rel="stylesheet" href="popup.css">
+  <script src="theme.js"></script>
 </head>
+
 <body>
   <div class="popup-container">
-    <div class="popup-header">
-      <div class="logo-row">
-        <div class="shield-icon">🛡️</div>
-        <h1>Privacy Assistant</h1>
+    <!-- Header -->
+    <header class="popup-header">
+      <div class="header-brand">
+        <div class="header-icon" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+        </div>
+        <span class="header-wordmark">Privacy Assistant</span>
       </div>
-      <p class="subtitle">SIH26171</p>
-    </div>
-    
-    <div class="toggle-section">
-      <div class="toggle-row">
-        <span class="toggle-label">Privacy Protection</span>
-        <label class="switch" for="privacyToggle">
-          <input type="checkbox" id="privacyToggle" checked>
-          <span class="slider"></span>
-        </label>
+      <button class="settings-btn" id="openSettings" type="button" aria-label="Settings" title="Settings">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+      </button>
+    </header>
+
+    <!-- Main Content -->
+    <main class="popup-main">
+      <div class="status-block">
+        <div class="status-row">
+          <span class="status-dot" id="statusDot"></span>
+          <span class="status-heading" id="statusHeading">Protected</span>
+        </div>
+        <p class="status-sub" id="statusSub">This page is protected.</p>
       </div>
-      <p class="status-text" id="statusText">Active — detecting & sanitizing PII</p>
-    </div>
-    
-    <div class="stats-section" id="statsSection">
-      <div class="stat-row">
-        <span class="stat-label">Detections</span>
-        <span class="stat-value" id="detectionCount">—</span>
+
+      <div class="site-row" id="siteDomain">
+        <span class="site-favicon" aria-hidden="true">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+        </span>
+        <span class="site-domain">example.com</span>
       </div>
-      <div class="stat-row">
-        <span class="stat-label">Status</span>
-        <span class="stat-value stat-safe" id="privacyStatus">Safe</span>
-      </div>
-    </div>
-    
-    <div class="actions-section">
-      <button class="btn-sidebar" id="openSidebar">Open Assistant Sidebar</button>
-    </div>
+
+      <p class="summary-text" id="protectionSummary">Nothing sensitive detected</p>
+
+      <button class="open-btn" id="openSidebar" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        Open Assistant
+      </button>
+    </main>
+
+    <!-- Footer -->
+    <footer class="popup-footer">
+      <span class="footer-dot"></span>
+      <span class="footer-text">Protected locally</span>
+    </footer>
   </div>
-  
+
   <script src="popup.js"></script>
 </body>
+
 </html>

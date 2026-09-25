@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Phase 2 Model Manager Tests</title>
+  <script src="../extension/providers/types.js"></script>
+  <script src="../extension/providers/groqProvider.js"></script>
+  <script src="../extension/providers/openRouterProvider.js"></script>
+  <script src="../extension/providers/geminiProvider.js"></script>
+  <script src="../extension/providers/localProvider.js"></script>
+  <script src="../extension/modelManager.js"></script>
+</head>
+<body>
+  <h1>Phase 2 Model Manager Tests</h1>
+  <div id="results"></div>
+  <script>
+    const results = document.getElementById('results');
+    function report(name, passed) {
+      const item = document.createElement('p');
+      item.textContent = `${passed ? 'PASS' : 'FAIL'}: ${name}`;
+      item.style.color = passed ? 'green' : 'red';
+      results.appendChild(item);
+    }
+
+    const store = {};
+    window.chrome = {
+      storage: {
+        local: {
+          get(keys, callback) { callback(store[keys[0]] ? { [keys[0]]: store[keys[0]] } : {}); },
+          set(values, callback) { Object.assign(store, values); callback(); }
+        }
+      }
+    };
+
+    (async () => {
+      const manager = new window.SIH_ModelManager.ModelManager();
+      const saved = await manager.saveConfig({ selectedProvider: 'local', selectedModel: '' });
+      const status = await manager.testConnection('local');
+      const publicConfig = await manager.getPublicConfig();
+      report('Configuration persists selected provider', saved.selectedProvider === 'local');
+      report('Local provider reports unavailable honestly', status.available === false && status.reason);
+      report('Groq exposes the configured default model', publicConfig.providers.groq.defaultModel === 'openai/gpt-oss-20b');
+      const text = window.SIH_ProviderTypes.normalizeResponse({ type: 'text', content: 'safe response' });
+      const action = window.SIH_ProviderTypes.normalizeResponse({ type: 'action', action: { type: 'scroll', amount: 300 } });
+      report('Text responses normalize to existing contract', text.type === 'text' && text.message === 'safe response');
+      report('Action responses normalize without provider-specific fields', action.type === 'action' && action.action.action === 'scroll' && action.action.value === '300');
+      report('Provider test fixture contains no raw PII', !JSON.stringify(store).includes('@'));
+      await manager.saveConfig({ providers: { groq: { configured: true, apiKey: 'groq-test-key' } } });
+      await manager.saveConfig({ providers: { groq: { configured: true } } });
+      report('Saving provider settings preserves an existing key', (await manager.getConfig()).providers.groq.apiKey === 'groq-test-key');
+      const groqConfig = await manager.saveConfig({
+        selectedProvider: 'groq',
+        selectedModel: 'gpt-oss-20b',
+        providers: { groq: { configured: true, apiKey: 'groq-test-key' } }
+      });
+      report('Legacy Groq short model is normalized to the full identifier', groqConfig.selectedModel === 'openai/gpt-oss-20b');
+      const openRouterConfig = await manager.saveConfig({
+        selectedProvider: 'openrouter',
+        selectedModel: 'openrouter/test-model',
+        providers: { openrouter: { configured: true, apiKey: 'openrouter-test-key' } }
+      });
+      report('Provider switching preserves the selected OpenRouter model', openRouterConfig.selectedProvider === 'openrouter' && openRouterConfig.selectedModel === 'openrouter/test-model');
+      const localConfig = await manager.saveConfig({ selectedProvider: 'local', selectedModel: '' });
+      report('LocalProvider configuration remains selectable', localConfig.selectedProvider === 'local');
+    })().catch(error => report(`Model Manager test completes: ${error.message}`, false));
+  </script>
+</body>
+</html>

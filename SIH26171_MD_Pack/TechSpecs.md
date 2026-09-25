@@ -8,8 +8,8 @@
 | Language | JS/TS | JS/TS | JS/TS |
 | Detection | DOM + Regex | + Tesseract OCR + MediaPipe | + advanced/semantic detection |
 | Redaction | Canvas + DOM bbox | + image-region redaction | optimized strategies |
-| Backend | FastAPI | FastAPI | FastAPI or revised backend |
-| LLM | Groq / Llama 3.1 8B | same | benchmark/revisit if justified |
+| Backend | FastAPI | Browser Model Manager; FastAPI retained during migration | No mandatory Python runtime |
+| LLM | Groq / GPT-OSS fallback | Groq/OpenRouter adapters; LocalProvider capability boundary | benchmark/revisit if justified |
 | Local ML | none in main path | MediaPipe | ONNX/WebGPU if justified |
 
 ## 2. DOM Extraction

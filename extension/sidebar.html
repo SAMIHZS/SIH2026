@@ -3,124 +3,133 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SIH26171 Assistant</title>
+  <title>Privacy Assistant</title>
+  <link rel="stylesheet" href="theme.css">
   <link rel="stylesheet" href="sidebar.css">
+  <script src="theme.js"></script>
 </head>
 <body>
   <div class="sidebar-container">
+
     <!-- Header -->
     <header class="sidebar-header">
-      <div class="header-top">
-        <div class="header-title">
-          <span class="shield">🛡️</span>
-          <h1>Privacy Assistant</h1>
+      <div class="sidebar-header-left">
+        <div class="header-icon" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
         </div>
-        <div class="privacy-badge" id="privacyBadge">
-          <span class="badge-dot"></span>
-          <span class="badge-text">Protected</span>
-        </div>
-      </div>
-    </header>
-    
-    <!-- Tabs -->
-    <nav class="tab-bar">
-      <button class="tab active" data-tab="chat" id="tabChat">💬 Chat</button>
-      <button class="tab" data-tab="privacy" id="tabPrivacy">🔒 Privacy View</button>
-    </nav>
-    
-    <!-- Chat Panel -->
-    <div class="panel active" id="panelChat">
-      <div class="messages" id="messageContainer">
-        <div class="message assistant">
-          <div class="message-avatar">🤖</div>
-          <div class="message-content">
-            <p>Hello! I'm your privacy-safe assistant. I can see the current page through sanitized context — no raw personal data leaves your device.</p>
-            <p class="message-hint">Ask me about the page or request an action.</p>
+        <div class="header-title-group">
+          <span class="header-title">Privacy Assistant</span>
+          <div class="header-status">
+            <span class="header-status-dot" id="headerStatusDot"></span>
+            <span class="header-status-label" id="headerStatusLabel">Protected</span>
           </div>
         </div>
       </div>
-      
-      <div class="input-area">
-        <div class="context-indicator" id="contextIndicator">
-          <span class="ctx-dot"></span>
-          <span class="ctx-text" id="contextStatus">Analyzing page...</span>
+      <div class="sidebar-header-right">
+        <button class="header-btn" id="settingsBtn" type="button" aria-label="Settings" title="Settings">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+        <button class="close-btn" id="closeBtn" type="button" aria-label="Close" title="Close">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="sidebar-main">
+
+      <!-- Empty State -->
+      <div class="empty-state" id="emptyState">
+        <div class="empty-state-icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
         </div>
-        <div class="input-row">
-          <textarea 
-            id="userInput" 
-            placeholder="Ask about this page..." 
-            rows="1"
-            autocomplete="off"
-          ></textarea>
-          <button id="sendBtn" class="send-btn" title="Send">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-            </svg>
+        <h2 class="empty-title">Privacy Assistant</h2>
+        <p class="empty-sub">Ask anything about this page.</p>
+        <div class="suggestions">
+          <button class="suggestion-row" type="button" data-prompt="Summarize this page">
+            <span>Summarize this page</span>
+            <span class="arrow">→</span>
+          </button>
+          <button class="suggestion-row" type="button" data-prompt="Explain this page">
+            <span>Explain this page</span>
+            <span class="arrow">→</span>
+          </button>
+          <button class="suggestion-row" type="button" data-prompt="Find important information on this page">
+            <span>Find important information</span>
+            <span class="arrow">→</span>
           </button>
         </div>
       </div>
-    </div>
-    
-    <!-- Privacy Visualization Panel -->
-    <div class="panel" id="panelPrivacy">
-      <div class="privacy-view">
-        <!-- Pipeline visualization -->
-        <div class="pipeline-section">
-          <h2 class="section-title">Privacy Pipeline</h2>
-          <div class="pipeline-flow">
-            <div class="pipeline-step">
-              <div class="step-icon">🌐</div>
-              <div class="step-label">Page Content</div>
-            </div>
-            <div class="pipeline-arrow">→</div>
-            <div class="pipeline-step">
-              <div class="step-icon">🔍</div>
-              <div class="step-label">Local Detection</div>
-            </div>
-            <div class="pipeline-arrow">→</div>
-            <div class="pipeline-step">
-              <div class="step-icon">🔒</div>
-              <div class="step-label">Sanitization</div>
-            </div>
-            <div class="pipeline-arrow">→</div>
-            <div class="pipeline-step active-step">
-              <div class="step-icon">☁️</div>
-              <div class="step-label">Network (Safe)</div>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Detected Data -->
-        <div class="detected-section">
-          <h2 class="section-title">Detected Sensitive Data</h2>
-          <div class="detection-list" id="detectionList">
-            <p class="empty-state">Analyzing page for sensitive data...</p>
-          </div>
-        </div>
-        
-        <!-- Sanitization View -->
-        <div class="sanitized-section">
-          <h2 class="section-title">Sanitized Representation</h2>
-          <div class="sanitized-content" id="sanitizedView">
-            <p class="empty-state">Waiting for analysis...</p>
-          </div>
-        </div>
-        
-        <!-- Network Context -->
-        <div class="network-section">
-          <h2 class="section-title">Data Sent to Remote AI</h2>
-          <div class="network-badge">
-            <span class="net-shield">🛡️</span>
-            <span>Only sanitized tokens — no raw PII</span>
-          </div>
-          <div class="network-content" id="networkView">
-            <p class="empty-state">No data sent yet.</p>
-          </div>
-        </div>
+
+      <!-- Conversation Stream -->
+      <div class="conversation-stream" id="conversationStream" style="display: none;"></div>
+    </main>
+
+    <!-- Security Context (Compact bottom bar) -->
+    <div class="security-banner" id="securityBanner" style="display: none;">
+      <div class="security-summary-row">
+        <span class="security-icon" id="securityIcon">✓</span>
+        <span class="security-text" id="securityNoticeText">Sensitive content protected locally</span>
+        <button class="details-toggle" id="detailsToggle" type="button">Details →</button>
+      </div>
+      <div class="details-drawer" id="detailsDrawer" style="display: none;">
+        <div class="details-list" id="detailsList"></div>
       </div>
     </div>
+
+    <!-- AI Context Controls -->
+    <div class="context-controls" id="contextControls">
+      <p class="context-controls-label">Context</p>
+      <div class="context-row">
+        <span class="context-item-name">
+          Text
+          <span class="context-ready">Ready</span>
+        </span>
+        <span class="context-badge context-badge-on" aria-label="Text context always active">ON</span>
+      </div>
+      <div class="context-row">
+        <label for="screenshotToggle" class="context-item-name">
+          Screenshot
+        </label>
+        <label class="context-switch" aria-label="Send sanitized screenshot to AI">
+          <input type="checkbox" id="screenshotToggle" role="switch"
+            aria-checked="true" aria-label="Send sanitized screenshot to AI">
+          <span class="context-slider" aria-hidden="true"></span>
+        </label>
+      </div>
+      <p class="context-note" id="screenshotNote">Sanitized locally · faces blurred · PII masked</p>
+    </div>
+
+    <!-- Input Composer -->
+    <div class="input-area">
+      <div class="input-wrapper">
+        <textarea
+          id="userInput"
+          placeholder="Ask about this page..."
+          rows="1"
+          autocomplete="off"
+        ></textarea>
+        <button id="sendBtn" class="send-btn" type="button" aria-label="Send" title="Send" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="19" x2="12" y2="5"/>
+            <polyline points="5 12 12 5 19 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
   </div>
-  
+
   <script src="sidebar.js"></script>
 </body>
 </html>

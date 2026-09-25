@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Phase 2 OCR Runtime Test</title>
+  <script>
+    window.chrome = { runtime: { getURL(path) { return new URL(`../extension/${path}`, window.location.href).href; } } };
+  </script>
+  <script src="../extension/vendor/tesseract/tesseract.min.js"></script>
+  <script src="../extension/detectors/ocrDetector.js"></script>
+  <script src="../extension/detectionFusion.js"></script>
+  <script src="../extension/sanitize.js"></script>
+</head>
+<body>
+  <h1>Phase 2 OCR Runtime Test</h1>
+  <p id="status">Running local OCR...</p>
+  <div id="results"></div>
+  <script>
+    const results = document.getElementById('results');
+    function report(name, passed, detail) {
+      const item = document.createElement('p');
+      item.textContent = `${passed ? 'PASS' : 'FAIL'}: ${name}${detail ? ` (${detail})` : ''}`;
+      item.style.color = passed ? 'green' : 'red';
+      results.appendChild(item);
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 900;
+    canvas.height = 220;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#000000';
+    context.font = 'bold 48px Arial';
+    context.fillText('ocr.user@example.com', 30, 120);
+
+    window.SIH_OcrDetector.recognize(canvas.toDataURL('image/png'), {
+      bbox: { x: 0, y: 0, width: 900, height: 220 },
+      elementId: 'synthetic-image'
+    }).then(result => {
+      document.getElementById('status').textContent = result.available ? 'Local OCR completed' : 'Local OCR unavailable';
+      const serialized = JSON.stringify(result);
+      report('OCR runtime loads locally', result.available, result.reason || 'available');
+      report('OCR produces Detection[]', Array.isArray(result.detections));
+      report('Synthetic email is detected locally', result.detections.some(item => item.type === 'email' && serialized.toLowerCase().includes('ocr.user@example.com')));
+      report('OCR detection has a bounding box', result.detections.every(item => item.bbox && item.bbox.width === 900));
+      const initMs = result.timings?.ocrInitMs;
+      const ocrMs = result.timings?.ocrMs;
+      const timingStr = typeof initMs === 'number' && typeof ocrMs === 'number'
+        ? `${initMs.toFixed(1)}ms init, ${ocrMs.toFixed(1)}ms inference`
+        : 'unavailable';
+      report('Measured OCR timings are numeric', typeof initMs === 'number' && typeof ocrMs === 'number', timingStr);
+      document.body.insertAdjacentText('beforeend', ' OCR contact: ocr.user@example.com');
+      const fused = window.SIH_DetectionFusion.fuse(result.detections);
+      const sanitizeStarted = performance.now();
+      const context = window.SIH_Sanitizer.buildSanitizedContext(fused, null);
+      const sanitizeMs = performance.now() - sanitizeStarted;
+      const serializedContext = JSON.stringify(context);
+      report('OCR detections enter the shared fusion layer', fused.every(item => item.source === 'ocr'));
+      report('OCR PII is sanitized before context creation', serializedContext.includes('[EMAIL_1]') && !serializedContext.includes('ocr.user@example.com'));
+      report('Measured sanitization timing is numeric', Number.isFinite(sanitizeMs), `${sanitizeMs.toFixed(1)}ms`);
+    }).catch(error => {
+      document.getElementById('status').textContent = 'Local OCR failed';
+      report('OCR runtime completes without failure', false, error.message);
+    });
+  </script>
+</body>
+</html>

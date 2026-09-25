@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>E2E Real Browser Action Verification — SIH26171 (Step 1)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b1120; color: #f8fafc; padding: 32px; max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    p.desc { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
+    .panel { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    button.demo-btn { background: #3b82f6; color: white; border: none; padding: 10px 18px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+    button.demo-btn:hover { background: #2563eb; }
+    input.demo-input { background: #0f172a; border: 1px solid #475569; color: white; padding: 10px 14px; border-radius: 6px; width: 60%; }
+    .status-badge { display: inline-block; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 13px; margin-top: 10px; }
+    .status-inactive { background: #334155; color: #94a3b8; }
+    .status-active { background: #166534; color: #4ade80; }
+    .pipeline-step { background: #0f172a; border-left: 4px solid #38bdf8; padding: 10px 14px; margin-bottom: 8px; font-family: monospace; font-size: 13px; border-radius: 0 4px 4px 0; }
+    .e2e-result { font-size: 18px; font-weight: bold; padding: 16px; border-radius: 8px; margin-top: 20px; }
+    .e2e-pass { background: rgba(34, 197, 94, 0.15); border: 1px solid #22c55e; color: #4ade80; }
+    .e2e-fail { background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #f87171; }
+  </style>
+  <script src="../extension/elementRegistry.js"></script>
+  <script src="../extension/detectors/domDetector.js"></script>
+  <script src="../extension/detectors/regexDetector.js"></script>
+  <script src="../extension/sanitize.js"></script>
+  <script src="../extension/validate.js"></script>
+  <script src="../extension/execute.js"></script>
+</head>
+<body>
+  <h1>🌐 Real Browser Action Pipeline Verification</h1>
+  <p class="desc">Verifies end-to-end flow: User Intent → Context Extraction → Target ID Generation → Action Resolution → Validator → Executor → Real DOM Event Mutation.</p>
+
+  <div class="panel">
+    <h3>Live Webpage UI Under Automation</h3>
+    <div style="margin-bottom: 16px;">
+      <button id="change-status-btn" class="demo-btn">Change Status</button>
+      <div id="status-display" class="status-badge status-inactive">Status: Inactive</div>
+    </div>
+    <div>
+      <input id="search-input" class="demo-input" placeholder="Search knowledge base">
+      <div id="input-echo" style="margin-top: 8px; font-size: 13px; color: #94a3b8;">Typed: (empty)</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Pipeline Audit Log</h3>
+    <div id="audit-log"></div>
+    <div id="final-verdict" class="e2e-result" style="display: none;"></div>
+  </div>
+
+  <script>
+    const logEl = document.getElementById('audit-log');
+    const statusEl = document.getElementById('status-display');
+    const inputEcho = document.getElementById('input-echo');
+    const changeBtn = document.getElementById('change-status-btn');
+    const searchInput = document.getElementById('search-input');
+    const verdictEl = document.getElementById('final-verdict');
+
+    // DOM event listeners simulating normal page behavior
+    let clickFired = false;
+    let typeFired = false;
+
+    changeBtn.addEventListener('click', () => {
+      clickFired = true;
+      statusEl.className = 'status-badge status-active';
+      statusEl.textContent = 'Status: Active (Updated via Real DOM Click!)';
+    });
+
+    searchInput.addEventListener('input', (e) => {
+      typeFired = true;
+      inputEcho.textContent = `Typed: ${e.target.value}`;
+    });
+
+    function logStep(text) {
+      const div = document.createElement('div');
+      div.className = 'pipeline-step';
+      div.textContent = text;
+      logEl.appendChild(div);
+    }
+
+    async function runE2EVerification() {
+      try {
+        logStep('1. Page loaded. Running Sanitizer to construct SanitizedContext...');
+        const context = window.SIH_Sanitizer.buildSanitizedContext([], null);
+        const elements = context.elements || [];
+
+        const btnDescriptor = elements.find(e => e.tag === 'button' && e.text === 'Change Status');
+        const inputDescriptor = elements.find(e => e.tag === 'input' && e.label === 'Search knowledge base');
+
+        if (!btnDescriptor || !btnDescriptor.id.startsWith('el_')) {
+          throw new Error('Button failed to receive registry target ID');
+        }
+        if (!inputDescriptor || !inputDescriptor.id.startsWith('el_')) {
+          throw new Error('Input failed to receive registry target ID');
+        }
+
+        logStep(`2. Extracted SanitizedContext. Button target ID: "${btnDescriptor.id}", Input target ID: "${inputDescriptor.id}".`);
+
+        // Simulate AI Action Response for Click
+        logStep(`3. AI generates click action targeting extension-owned ID "${btnDescriptor.id}"...`);
+        const clickAction = {
+          action: 'click',
+          target: btnDescriptor.id
+        };
+
+        logStep(`4. Passing action to window.SIH_Validator...`);
+        const clickVal = window.SIH_Validator.validateAction(clickAction);
+        if (!clickVal.allowed) {
+          throw new Error(`Validator rejected click: ${clickVal.reason}`);
+        }
+        logStep(`5. Validator PASSED: Target "${btnDescriptor.id}" resolved in registry, connected, visible, and allowed.`);
+
+        logStep(`6. Passing action to window.SIH_Executor...`);
+        const clickExec = window.SIH_Executor.executeAction(clickAction);
+        if (!clickExec.success) {
+          throw new Error(`Executor error: ${clickExec.error}`);
+        }
+
+        // Wait for smooth scroll and 100ms click delay in executeClick
+        await new Promise(r => setTimeout(r, 200));
+
+        if (!clickFired) {
+          throw new Error('Real DOM click event was not fired on target button!');
+        }
+        logStep(`7. Real DOM Click Event CONFIRMED: Status changed to "${statusEl.textContent}".`);
+
+        // Simulate AI Action Response for Type
+        logStep(`8. AI generates type action targeting "${inputDescriptor.id}" with value "Privacy Automation"...`);
+        const typeAction = {
+          action: 'type',
+          target: inputDescriptor.id,
+          value: 'Privacy Automation'
+        };
+
+        const typeVal = window.SIH_Validator.validateAction(typeAction);
+        if (!typeVal.allowed) {
+          throw new Error(`Validator rejected type: ${typeVal.reason}`);
+        }
+
+        const typeExec = window.SIH_Executor.executeAction(typeAction);
+        if (!typeExec.success) {
+          throw new Error(`Executor error: ${typeExec.error}`);
+        }
+
+        if (!typeFired || searchInput.value !== 'Privacy Automation') {
+          throw new Error(`Real DOM input failed! Value is: "${searchInput.value}"`);
+        }
+        logStep(`9. Real DOM Type Event CONFIRMED: Input value changed to "${searchInput.value}".`);
+
+        verdictEl.style.display = 'block';
+        verdictEl.className = 'e2e-result e2e-pass';
+        verdictEl.textContent = '✅ E2E REAL BROWSER ACTION SUCCESS: All stages validated and executed on live DOM!';
+
+      } catch (err) {
+        verdictEl.style.display = 'block';
+        verdictEl.className = 'e2e-result e2e-fail';
+        verdictEl.textContent = `❌ E2E VERIFICATION FAILED: ${err.message}`;
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', runE2EVerification);
+  </script>
+</body>
+</html>

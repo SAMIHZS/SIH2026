@@ -1,172 +1,210 @@
-/* Popup Styles — SIH26171 */
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #0f1117;
-  color: #e4e4e7;
-  width: 300px;
-  min-height: 200px;
-}
+/* ═══════════════════════════════════════════════
+   popup.css — SIH26171 Privacy Assistant Popup
+═══════════════════════════════════════════════ */
 
 .popup-container {
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  min-height: 280px;
+  background: var(--bg);
+  overflow: hidden;
 }
 
+/* ── Header ── */
 .popup-header {
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
 }
 
-.logo-row {
+.header-brand {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.shield-icon {
-  font-size: 22px;
-}
-
-h1 {
-  font-size: 16px;
-  font-weight: 600;
-  color: #f4f4f5;
-}
-
-.subtitle {
-  font-size: 11px;
-  color: #71717a;
-  margin-top: 2px;
-  margin-left: 30px;
-}
-
-/* Toggle */
-.toggle-section {
-  margin-bottom: 14px;
-}
-
-.toggle-row {
+.header-icon {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  color: var(--accent);
+  flex-shrink: 0;
 }
 
-.toggle-label {
+.header-wordmark {
   font-size: 13px;
-  font-weight: 500;
-}
-
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-}
-
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background-color: #3f3f46;
-  transition: 0.3s;
-  border-radius: 24px;
-}
-
-.slider:before {
-  content: "";
-  position: absolute;
-  height: 18px;
-  width: 18px;
-  left: 3px;
-  bottom: 3px;
-  background-color: #fafafa;
-  transition: 0.3s;
-  border-radius: 50%;
-}
-
-input:checked + .slider {
-  background-color: #22c55e;
-}
-
-input:checked + .slider:before {
-  transform: translateX(20px);
-}
-
-.status-text {
-  font-size: 11px;
-  color: #22c55e;
-  margin-top: 6px;
-}
-
-.status-text.disabled {
-  color: #ef4444;
-}
-
-/* Stats */
-.stats-section {
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 14px;
-}
-
-.stat-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 0;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: #a1a1aa;
-}
-
-.stat-value {
-  font-size: 12px;
   font-weight: 600;
-  color: #f4f4f5;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
-.stat-safe {
-  color: #22c55e;
-}
-
-/* Button */
-.actions-section {
-  margin-top: 4px;
-}
-
-.btn-sidebar {
-  width: 100%;
-  padding: 10px;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  color: white;
+.settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: none;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.settings-btn:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+/* ── Main ── */
+.popup-main {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 18px 18px;
+  gap: 0;
+  flex: 1;
+}
+
+/* Status Block */
+.status-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 16px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--success);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px var(--success-subtle);
+}
+
+.status-dot.paused {
+  background-color: var(--text-tertiary);
+  box-shadow: none;
+}
+
+.status-heading {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.status-sub {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  padding-left: 14px;
+  line-height: 1.4;
+}
+
+/* Site row */
+.site-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 7px 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.site-favicon {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.site-domain {
   font-size: 13px;
   font-weight: 500;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+/* Protection summary */
+.summary-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 18px;
+  line-height: 1.45;
+  letter-spacing: -0.005em;
+}
+
+.summary-count {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Action Button */
+.open-btn {
+  width: 100%;
+  height: 38px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: background-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  box-shadow: 0 1px 4px rgba(91,87,232,0.3);
 }
 
-.btn-sidebar:hover {
-  opacity: 0.9;
+.open-btn:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 2px 8px rgba(91,87,232,0.38);
 }
 
-.btn-sidebar:active {
-  opacity: 0.8;
+.open-btn:active {
+  transform: scale(0.985);
 }
+
+/* ── Footer ── */
+.popup-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.footer-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: var(--success);
+  flex-shrink: 0;
+}
+
+.footer-text {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.01em;
+}
+

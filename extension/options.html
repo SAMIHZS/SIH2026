@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Assistant — Settings</title>
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="options.css">
+  <script src="theme.js"></script>
+</head>
+<body>
+  <main class="settings-shell">
+
+    <header class="settings-header">
+      <div class="settings-header-brand">
+        <div class="settings-brand-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </div>
+        <div class="settings-brand-text">
+          <p class="eyebrow">SIH26171</p>
+          <h1>Privacy Assistant</h1>
+        </div>
+      </div>
+      <p class="intro">Configure the reasoning provider used after local privacy processing.</p>
+    </header>
+
+    <!-- AI Provider -->
+    <section class="settings-panel" aria-labelledby="providerHeading">
+      <div class="panel-heading">
+        <div class="section-label">
+          <p class="eyebrow">AI configuration</p>
+          <h2 id="providerHeading">AI Provider</h2>
+        </div>
+        <span class="privacy-note" id="privacyNoteText">No provider configured · Local sanitization active</span>
+      </div>
+
+      <label for="providerSelect">Provider</label>
+      <select id="providerSelect">
+        <option value="">Not configured</option>
+        <option value="groq">Groq</option>
+        <option value="openrouter">OpenRouter</option>
+        <option value="gemini">Google Gemini</option>
+        <option value="local">Local Model</option>
+      </select>
+
+      <label for="apiKeyInput">API key</label>
+      <input id="apiKeyInput" type="password" autocomplete="off" placeholder="Stored in extension storage">
+      <p class="field-note">The key is used only by the privileged extension service worker and is never sent to webpages.</p>
+
+      <div class="model-row">
+        <div class="model-field">
+          <label for="modelSelect">Model</label>
+          <select id="modelSelect" aria-label="Select model"></select>
+          <input id="modelInput" type="text" autocomplete="off" placeholder="Enter a model identifier">
+        </div>
+        <button id="discoverModels" class="secondary-button" type="button">Discover models</button>
+      </div>
+
+      <div class="actions-row">
+        <button id="saveProvider" class="primary-button" type="button">Save configuration</button>
+        <button id="testProvider" class="secondary-button" type="button">Test connection</button>
+      </div>
+      <p class="connection-status" id="connectionStatus" aria-live="polite">Not configured</p>
+    </section>
+
+    <!-- Privacy -->
+    <section class="settings-panel security-panel" aria-labelledby="securityHeading">
+      <div class="section-rule-heading">
+        <p class="eyebrow">Privacy boundary</p>
+        <h2 id="securityHeading">How this works</h2>
+      </div>
+      <p>DOM, text, OCR, and visual data are processed locally before any provider request. The assistant receives sanitized context and locally redacted imagery only.</p>
+      <p>Client-side API keys remain user-managed credentials. They are isolated from webpage content, but cannot be cryptographically hidden from the person controlling this browser profile.</p>
+    </section>
+
+    <!-- Protection -->
+    <section class="settings-panel preference-panel" aria-labelledby="privacyHeading">
+      <div class="section-rule-heading">
+        <p class="eyebrow">Protection</p>
+        <h2 id="privacyHeading">Privacy Protection</h2>
+      </div>
+      <div class="info-row">
+        <div>
+          <strong>Local-first processing</strong>
+          <p>Detection and sanitization remain active before any provider request.</p>
+        </div>
+        <span class="status-chip status-chip-green" id="privacySettingsStatus">Active</span>
+      </div>
+    </section>
+
+    <!-- Appearance -->
+    <section class="settings-panel preference-panel" aria-labelledby="appearanceHeading">
+      <div class="section-rule-heading">
+        <p class="eyebrow">Interface</p>
+        <h2 id="appearanceHeading">Appearance</h2>
+      </div>
+      <div class="info-row theme-row">
+        <div>
+          <strong>Theme</strong>
+          <p>Choose between light and dark interface.</p>
+        </div>
+        <div class="theme-segment" role="group" aria-label="Theme selection">
+          <button class="theme-segment-btn" id="themeLightBtn" type="button" aria-pressed="true">Light</button>
+          <button class="theme-segment-btn" id="themeDarkBtn" type="button" aria-pressed="false">Dark</button>
+        </div>
+        <!-- Hidden checkbox kept for JS backwards compatibility -->
+        <label class="theme-switch" for="themeToggle">
+          <input id="themeToggle" type="checkbox" aria-label="Dark theme" tabindex="-1">
+        </label>
+      </div>
+    </section>
+
+    <!-- Intelligence -->
+    <section class="settings-panel preference-panel" aria-labelledby="intelligenceHeading">
+      <div class="section-rule-heading">
+        <p class="eyebrow">Runtime</p>
+        <h2 id="intelligenceHeading">Detection &amp; Intelligence</h2>
+      </div>
+      <div class="capability-list">
+        <div class="capability-row"><span>DOM and Regex</span><span class="status-chip status-chip-green">Enabled</span></div>
+        <div class="capability-row"><span>OCR</span><span class="status-chip status-chip-blue">Local</span></div>
+        <div class="capability-row"><span>Vision</span><span class="status-chip status-chip-blue">Local</span></div>
+      </div>
+    </section>
+
+    <!-- About -->
+    <section class="settings-panel preference-panel about-panel" aria-labelledby="aboutHeading">
+      <div class="section-rule-heading">
+        <p class="eyebrow">Project</p>
+        <h2 id="aboutHeading">About</h2>
+      </div>
+      <p>SIH26171 Privacy Assistant keeps sensitive browser context on the device until it has been detected, sanitized, and locally redacted.</p>
+      <span class="version-label">Phase 2 runtime · Chrome MV3</span>
+    </section>
+
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

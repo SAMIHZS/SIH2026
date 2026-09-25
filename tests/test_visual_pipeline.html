@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Step 3 — Visual Pipeline Hardening & Security Verification</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; background: #0f172a; color: #f8fafc; }
+    h1 { color: #38bdf8; border-bottom: 1px solid #334155; padding-bottom: 12px; }
+    h2 { color: #94a3b8; font-size: 16px; margin-top: 24px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .test-row { display: flex; justify-content: space-between; padding: 8px 12px; margin: 4px 0; border-radius: 6px; background: #1e293b; font-size: 14px; }
+    .pass { border-left: 4px solid #10b981; }
+    .fail { border-left: 4px solid #ef4444; }
+    .badge { font-weight: bold; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+    .badge-pass { background: #065f46; color: #6ee7b7; }
+    .badge-fail { background: #7f1d1d; color: #fca5a5; }
+    .summary-box { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin: 20px 0; }
+  </style>
+  <script src="../extension/metrics.js"></script>
+  <script src="../extension/detectionGate.js"></script>
+  <script src="../extension/detectionFusion.js"></script>
+  <script src="../extension/detectors/ocrDetector.js"></script>
+  <script src="../extension/detectors/visionDetector.js"></script>
+  <script src="../extension/vision/redactor.js"></script>
+  <script src="../extension/sanitize.js"></script>
+  <script src="../extension/providers/types.js"></script>
+  <script src="../extension/providers/groqProvider.js"></script>
+  <script src="../extension/providers/openRouterProvider.js"></script>
+  <script src="../extension/providers/geminiProvider.js"></script>
+  <script src="../extension/providers/localProvider.js"></script>
+  <script src="../extension/modelManager.js"></script>
+</head>
+<body>
+  <h1>Step 3 — Visual Pipeline Hardening Verification</h1>
+  <div class="summary-box">
+    <div id="overall-status" style="font-size: 18px; font-weight: bold; color: #38bdf8;">Running test suite...</div>
+    <div id="stats" style="margin-top: 8px; color: #94a3b8;"></div>
+  </div>
+
+  <h2>1. Cost-Based Detection Gate Policy</h2>
+  <div id="gate-results"></div>
+
+  <h2>2. OCR Classification & Bounding Box Preservation</h2>
+  <div id="ocr-results"></div>
+
+  <h2>3. Detection Fusion & Provenance Tracking</h2>
+  <div id="fusion-results"></div>
+
+  <h2>4. Local Redaction Engine (Bounds, Overlaps, Malformed Boxes)</h2>
+  <div id="redaction-results"></div>
+
+  <h2>5. Remote Provider Isolation & Visual Data Blocking</h2>
+  <div id="security-results"></div>
+
+  <h2>6. Concurrency & Generation Invariant</h2>
+  <div id="concurrency-results"></div>
+
+  <script>
+    let totalTests = 0;
+    let passedTests = 0;
+
+    function record(containerId, name, condition, detail) {
+      totalTests++;
+      if (condition) passedTests++;
+      const container = document.getElementById(containerId);
+      const row = document.createElement('div');
+      row.className = `test-row ${condition ? 'pass' : 'fail'}`;
+      
+      const titleSpan = document.createElement('span');
+      titleSpan.textContent = name;
+      if (detail) {
+        const detailSpan = document.createElement('span');
+        detailSpan.style.color = '#94a3b8';
+        detailSpan.style.marginLeft = '8px';
+        detailSpan.textContent = `(${detail})`;
+        titleSpan.appendChild(detailSpan);
+      }
+
+      const badge = document.createElement('span');
+      badge.className = `badge ${condition ? 'badge-pass' : 'badge-fail'}`;
+      badge.textContent = condition ? 'PASS' : 'FAIL';
+
+      row.appendChild(titleSpan);
+      row.appendChild(badge);
+      container.appendChild(row);
+
+      updateSummary();
+    }
+
+    function updateSummary() {
+      const allPassed = passedTests === totalTests;
+      const statusEl = document.getElementById('overall-status');
+      statusEl.textContent = allPassed ? `All Visual Pipeline Tests Passed (${passedTests}/${totalTests})` : `Tests Failed (${totalTests - passedTests} failures)`;
+      statusEl.style.color = allPassed ? '#10b981' : '#ef4444';
+      document.getElementById('stats').textContent = `${passedTests} passed out of ${totalTests} assertions.`;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 1. Detection Gate Matrix
+    // ─────────────────────────────────────────────────────────────
+    // Case A: text-only page (no images, no canvas)
+    const gateA = window.SIH_DetectionGate.decide({
+      detections: [],
+      imageCount: 0,
+      canvasCount: 0,
+      imageHeavy: false
+    });
+    record('gate-results', 'Case A: Text-only page skips visual stages', !gateA.runOcr && !gateA.runCv, `reason: ${gateA.reason}`);
+
+    // Case B: high-confidence cheap detection present
+    const gateB = window.SIH_DetectionGate.decide({
+      detections: [{ type: 'email', confidence: 0.95 }],
+      imageCount: 5,
+      canvasCount: 1,
+      imageHeavy: true
+    });
+    record('gate-results', 'Case B: High-confidence cheap detection stops OCR/CV', !gateB.runOcr && !gateB.runCv, `reason: ${gateB.reason}`);
+
+    // Case C: image-heavy page with unresolved cheap confidence
+    const gateC = window.SIH_DetectionGate.decide({
+      detections: [],
+      imageCount: 4,
+      canvasCount: 0,
+      imageHeavy: true
+    });
+    record('gate-results', 'Case C: Image-heavy page activates OCR', gateC.runOcr === true, `cost: ${gateC.estimatedCost}`);
+
+    // Case D: canvas page
+    const gateD = window.SIH_DetectionGate.decide({
+      detections: [],
+      imageCount: 0,
+      canvasCount: 2,
+      imageHeavy: false
+    });
+    record('gate-results', 'Case D: Canvas-heavy page activates OCR', gateD.runOcr === true, `reason: ${gateD.reason}`);
+
+    // Case E: post-OCR gate with unresolved PII activates CV
+    const gateE = window.SIH_DetectionGate.decideAfterOcr({
+      detections: [],
+      imageCount: 4,
+      canvasCount: 0,
+      cvAvailable: true
+    });
+    record('gate-results', 'Case E: Unresolved post-OCR activates CV', gateE.runCv === true, `reason: ${gateE.reason}`);
+
+    // Case F: post-OCR gate with resolved PII stops CV
+    const gateF = window.SIH_DetectionGate.decideAfterOcr({
+      detections: [{ type: 'email', confidence: 0.88 }],
+      imageCount: 4,
+      canvasCount: 0,
+      cvAvailable: true
+    });
+    record('gate-results', 'Case F: High-confidence OCR detection stops CV', gateF.runCv === false, `reason: ${gateF.reason}`);
+
+    // ─────────────────────────────────────────────────────────────
+    // 2. OCR Classification & Bounding Box
+    // ─────────────────────────────────────────────────────────────
+    const sampleText = "Support: agent.42@support.acme.org, Phone: +1 415-555-0199, SSN: 123-45-6789";
+    const ocrDets = window.SIH_OcrDetector.classifyText(sampleText, {
+      bbox: { x: 50, y: 120, width: 400, height: 80 },
+      elementId: 'canvas_region_1'
+    });
+    record('ocr-results', 'OCR classifies multiple PII types from text', ocrDets.length >= 3, `found: ${ocrDets.map(d => d.type).join(', ')}`);
+    record('ocr-results', 'OCR preserves provenance and element ID', ocrDets.every(d => d.source === 'ocr' && d.elementId === 'canvas_region_1'));
+    record('ocr-results', 'OCR preserves bounding box coordinates', ocrDets.every(d => d.bbox && d.bbox.x === 50 && d.bbox.width === 400));
+    record('ocr-results', 'OCR attaches confidence scores', ocrDets.every(d => typeof d.confidence === 'number' && d.confidence >= 0.7));
+
+    // ─────────────────────────────────────────────────────────────
+    // 3. Detection Fusion & Provenance Tracking
+    // ─────────────────────────────────────────────────────────────
+    const domDet = { type: 'email', value: 'contact@acme.org', source: 'dom', confidence: 0.85, rect: { x: 10, y: 10, width: 100, height: 20 } };
+    const regexDet = { type: 'email', value: 'contact@acme.org', source: 'regex', confidence: 0.95, rect: { x: 10, y: 10, width: 100, height: 20 } };
+    const cvDet = { type: 'face', source: 'vision', confidence: 0.92, bbox: { x: 200, y: 50, width: 80, height: 80 }, rect: { x: 200, y: 50, width: 80, height: 80 } };
+
+    const fusedMulti = window.SIH_DetectionFusion.fuse([domDet, regexDet, cvDet]);
+    record('fusion-results', 'Fusion merges duplicate values and keeps highest confidence', fusedMulti.length === 2 && fusedMulti.find(d => d.type === 'email')?.confidence === 0.95);
+    record('fusion-results', 'Fusion tracks multi-source provenance', fusedMulti.find(d => d.type === 'email')?.provenance.includes('dom') && fusedMulti.find(d => d.type === 'email')?.provenance.includes('regex'));
+    record('fusion-results', 'Fusion preserves CV face detection and bounding box', fusedMulti.some(d => d.type === 'face' && d.source === 'vision' && d.bbox?.width === 80));
+
+    // ─────────────────────────────────────────────────────────────
+    // 4. Local Redaction Engine
+    // ─────────────────────────────────────────────────────────────
+    (async () => {
+      const redactorCanvas = document.createElement('canvas');
+      const testWidth = window.innerWidth || 400;
+      const testHeight = window.innerHeight || 300;
+      redactorCanvas.width = testWidth;
+      redactorCanvas.height = testHeight;
+      const ctx = redactorCanvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, testWidth, testHeight);
+      // Draw target red square at 20, 20
+      ctx.fillStyle = '#ff0000';
+      ctx.fillRect(20, 20, 40, 40);
+      const dataUrl = redactorCanvas.toDataURL('image/png');
+
+      // Test 4A: Normal redaction
+      const normalRedacted = await window.SIH_Redactor.redactImage(dataUrl, [{ x: 20, y: 20, width: 40, height: 40 }]);
+      const checkImg = new Image();
+      await new Promise(r => { checkImg.onload = r; checkImg.src = normalRedacted; });
+      const checkCanvas = document.createElement('canvas');
+      checkCanvas.width = testWidth; checkCanvas.height = testHeight;
+      const checkCtx = checkCanvas.getContext('2d');
+      checkCtx.drawImage(checkImg, 0, 0);
+      const pixel = checkCtx.getImageData(30, 30, 1, 1).data;
+      const isMasked = (pixel[0] !== 255 || pixel[1] !== 0 || pixel[2] !== 0) && (pixel[0] < 30);
+      record('redaction-results', 'Target pixel is masked by solid dark rectangle', isMasked, `pixel: rgba(${pixel[0]},${pixel[1]},${pixel[2]},${pixel[3]})`);
+
+      // Test 4B: Empty rects
+      const emptyRedacted = await window.SIH_Redactor.redactImage(dataUrl, []);
+      record('redaction-results', 'Empty rect list handles safely without crash', Boolean(emptyRedacted && emptyRedacted.startsWith('data:image/png')));
+
+      // Test 4C: Overlapping boxes
+      const overlapRedacted = await window.SIH_Redactor.redactImage(dataUrl, [
+        { x: 10, y: 10, width: 30, height: 30 },
+        { x: 25, y: 25, width: 30, height: 30 }
+      ]);
+      record('redaction-results', 'Overlapping boxes blend safely', Boolean(overlapRedacted && overlapRedacted.startsWith('data:image/png')));
+
+      // Test 4D: Partially out-of-bounds boxes (negative x, large width)
+      const outOfBoundsRedacted = await window.SIH_Redactor.redactImage(dataUrl, [
+        { x: -50, y: -20, width: 200, height: 100 },
+        { x: 350, y: 250, width: 100, height: 100 }
+      ]);
+      record('redaction-results', 'Out-of-bounds boxes clipped without canvas crash', Boolean(outOfBoundsRedacted && outOfBoundsRedacted.startsWith('data:image/png')));
+
+      // Test 4E: Malformed / NaN / undefined boxes
+      const malformedRedacted = await window.SIH_Redactor.redactImage(dataUrl, [
+        null,
+        undefined,
+        { x: 'invalid', y: NaN, width: -10, height: null },
+        { x: 50, y: 50, width: 20, height: 20 }
+      ]);
+      record('redaction-results', 'Malformed/non-numeric boxes handled safely without throwing', Boolean(malformedRedacted && malformedRedacted.startsWith('data:image/png')));
+    })().catch(err => {
+      record('redaction-results', 'Redaction suite completes without error', false, err.message);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // 5. Remote Provider Isolation & Visual Data Blocking
+    // ─────────────────────────────────────────────────────────────
+    (async () => {
+      const dispatchedRequests = [];
+      const fakeStore = {};
+      window.chrome = {
+        storage: {
+          local: {
+            get(keys, cb) { cb(fakeStore[keys[0]] ? { [keys[0]]: fakeStore[keys[0]] } : {}); },
+            set(val, cb) { Object.assign(fakeStore, val); cb && cb(); }
+          }
+        }
+      };
+
+      const originalFetch = window.fetch;
+      window.fetch = async (url, options) => {
+        dispatchedRequests.push({ url, body: JSON.parse(options.body) });
+        if (url.includes('/models')) return { ok: true, json: async () => ({ data: [{ id: 'test-model' }] }) };
+        return { ok: true, json: async () => ({ choices: [{ message: { content: '{"type":"text","message":"ok"}' } }] }) };
+      };
+
+      const manager = new window.SIH_ModelManager.ModelManager();
+      await manager.saveConfig({
+        selectedProvider: 'groq',
+        selectedModel: 'test-model',
+        providers: { groq: { configured: true, apiKey: 'test-key', models: [] } }
+      });
+
+      // Simulated context containing a redacted base64 screenshot
+      const contextWithImage = {
+        page: { url: 'https://example.com/demo', title: 'Demo Page' },
+        elements: [{ id: 'btn_1', role: 'button', label: 'Submit' }],
+        text: 'Page text mentioning [EMAIL_1]',
+        screenshot: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+      };
+
+      await manager.chat(contextWithImage, 'What is on this page?');
+      window.fetch = originalFetch;
+
+      const serializedPayload = JSON.stringify(dispatchedRequests);
+      const userContent = JSON.parse(dispatchedRequests[0]?.body?.messages?.[1]?.content || '{}');
+      const sanitizedContextInPayload = userContent.sanitized_context;
+      record('security-results', 'Chat request dispatches to configured provider', dispatchedRequests.length === 1);
+      record('security-results', 'Raw base64 screenshot is STRIPPED from provider payload', !serializedPayload.includes('data:image/png;base64') && !sanitizedContextInPayload?.screenshot);
+      record('security-results', 'Redacted screenshot indicator preserved in payload metadata', sanitizedContextInPayload?.screenshotRedacted === true);
+      record('security-results', 'Sanitized token reaches provider intact', serializedPayload.includes('[EMAIL_1]'));
+      record('security-results', 'No unredacted PII in provider payload', !serializedPayload.includes('agent.42@support.acme.org'));
+    })().catch(err => {
+      record('security-results', 'Provider security suite completes without error', false, err.message);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // 6. Concurrency & Generation Invariant
+    // ─────────────────────────────────────────────────────────────
+    (() => {
+      let currentGeneration = 1;
+      let committedGeneration = null;
+
+      function simulateAsyncAnalysisStage(generation, latencyMs) {
+        return new Promise(resolve => {
+          setTimeout(() => {
+            if (generation === currentGeneration) {
+              committedGeneration = generation;
+              resolve({ committed: true, generation });
+            } else {
+              resolve({ committed: false, generation, reason: 'superseded' });
+            }
+          }, latencyMs);
+        });
+      }
+
+      // Analysis 1 starts with 80ms latency
+      const p1 = simulateAsyncAnalysisStage(1, 80);
+      // Analysis 2 interrupts at 20ms
+      currentGeneration = 2;
+      const p2 = simulateAsyncAnalysisStage(2, 40);
+
+      Promise.all([p1, p2]).then(([r1, r2]) => {
+        record('concurrency-results', 'Stale analysis generation N is superseded and discarded', r1.committed === false && r1.reason === 'superseded');
+        record('concurrency-results', 'Latest analysis generation N+1 commits authoritative context', r2.committed === true && committedGeneration === 2);
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="SIH26171 Controlled Test Page — synthetic PII and face for deterministic extension testing">
+  <title>SIH26171 — Test Page: PII + Face Detection</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e8eaf0;
+      --text-dim: #8b909e;
+      --accent: #4f8ef5;
+      --success: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 24px;
+    }
+    .page-header {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 24px;
+    }
+    .page-header h1 { font-size: 1.4rem; font-weight: 600; }
+    .page-header p { color: var(--text-dim); font-size: 13px; margin-top: 6px; }
+    .badge {
+      display: inline-block;
+      background: color-mix(in srgb, var(--warn) 20%, transparent);
+      color: var(--warn);
+      border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 99px;
+      letter-spacing: 0.04em;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+    .section h2 {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-dim);
+      margin-bottom: 16px;
+    }
+    .pii-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+    }
+    .pii-field {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 14px;
+    }
+    .pii-field .label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+    .pii-field .value {
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      color: var(--text);
+    }
+    .face-section {
+      display: flex;
+      align-items: flex-start;
+      gap: 24px;
+    }
+    .face-container {
+      position: relative;
+      flex-shrink: 0;
+    }
+    .face-container img {
+      width: 240px;
+      height: 240px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 2px solid var(--border);
+      display: block;
+    }
+    .face-caption {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 6px;
+      text-align: center;
+    }
+    .face-info {
+      flex: 1;
+    }
+    .face-info p { color: var(--text-dim); font-size: 14px; margin-bottom: 8px; }
+    .face-info .name { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+    .interactive-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button.secondary {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    button.danger {
+      background: color-mix(in srgb, var(--danger) 20%, transparent);
+      border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+      color: var(--danger);
+    }
+    input[type="text"], input[type="email"], input[type="password"], input[type="search"] {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 14px;
+      width: 220px;
+      outline: none;
+    }
+    input::placeholder { color: var(--text-dim); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .scrollable {
+      height: 300px;
+      overflow-y: auto;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      margin-top: 12px;
+    }
+    .scroll-item {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      color: var(--text-dim);
+    }
+    .scroll-item:last-child { border-bottom: none; }
+    .diagnostic {
+      font-family: monospace;
+      font-size: 12px;
+      color: var(--success);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- PAGE HEADER -->
+  <div class="page-header">
+    <h1>SIH26171 Controlled Test Page <span class="badge">SYNTHETIC DATA ONLY</span></h1>
+    <p>
+      This page contains exclusively synthetic/fake information for deterministic extension testing.
+      No real personal data is present. All PII, images, and content are fabricated test fixtures.
+    </p>
+  </div>
+
+  <!-- TEST A: FACE DETECTION TARGET -->
+  <div class="section" id="faceSection">
+    <h2>Test Target — Face Detection (Test C / Test D)</h2>
+    <div class="face-section">
+      <div class="face-container">
+        <!--
+          SYNTHETIC TEST FACE: Photorealistic synthetic portrait fixture
+          designed for deterministic neural network face detection (MediaPipe BlazeFace).
+          Fabricated synthetic data — no real personal data.
+        -->
+        <img id="testFace" src="fixtures/synthetic_face.jpg" alt="Synthetic test face for face detection" width="240" height="240" style="width: 240px; height: 240px; object-fit: cover; border-radius: 8px; border: 2px solid var(--border); display: block;" />
+        <div class="face-caption">Synthetic photograph portrait (test fixture)</div>
+      </div>
+      <div class="face-info">
+        <div class="name">Alex Test-Person</div>
+        <p>This is a purely fictional profile for extension testing.</p>
+        <p>The face graphic is a geometric SVG designed to trigger face detection models.</p>
+        <p>The original page must remain unchanged. Only the sanitized screenshot copy forwarded to the AI should have the face blurred.</p>
+        <p style="margin-top: 12px; font-size: 12px; color: var(--warn);">
+          Expected test result: MediaPipe detects face → bounding box generated → blur applied to sanitized screenshot copy → original page unchanged.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- TEST B: TEXT PII FIELDS -->
+  <div class="section" id="piiSection">
+    <h2>Test Target — Text PII Detection (Test E)</h2>
+    <div class="pii-grid">
+      <div class="pii-field">
+        <div class="label">Email (synthetic)</div>
+        <div class="value" id="testEmail">alex.testperson@fakeemail-sih.example</div>
+      </div>
+      <div class="pii-field">
+        <div class="label">Phone (synthetic)</div>
+        <div class="value" id="testPhone">+91-99999-00001</div>
+      </div>
+      <div class="pii-field">
+        <div class="label">Card number (synthetic)</div>
+        <div class="value" id="testCard">4111 1111 1111 1111</div>
+      </div>
+      <div class="pii-field">
+        <div class="label">SSN-style (synthetic)</div>
+        <div class="value" id="testSsn">123-45-6789</div>
+      </div>
+      <div class="pii-field">
+        <div class="label">Address (synthetic)</div>
+        <div class="value" id="testAddress">42 Synthetic Lane, Test City, TS 00001</div>
+      </div>
+      <div class="pii-field">
+        <div class="label">Account number (synthetic)</div>
+        <div class="value" id="testAccount">ACC-9876543210</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TEST C: INPUT FIELDS (for action validation) -->
+  <div class="section" id="inputSection">
+    <h2>Interactive Elements — Action Regression (Test L)</h2>
+    <div class="interactive-grid">
+      <input type="search"  id="searchField"   placeholder="Search…" aria-label="Search field"/>
+      <input type="email"   id="emailInput"    placeholder="Email address" aria-label="Email input"/>
+      <input type="password" id="passwordInput" placeholder="Password" aria-label="Password input"/>
+      <input type="text"    id="nameInput"     placeholder="Full name" aria-label="Name input"/>
+    </div>
+    <div class="interactive-grid" style="margin-top: 12px;">
+      <button id="submitBtn"   type="button">Submit Form</button>
+      <button id="cancelBtn"   type="button" class="secondary">Cancel</button>
+      <button id="deleteBtn"   type="button" class="danger">Delete Record</button>
+      <button id="loginBtn"    type="button">Login</button>
+      <button id="logoutBtn"   type="button" class="secondary">Logout</button>
+    </div>
+    <div class="interactive-grid" style="margin-top: 12px;">
+      <a href="#faceSection"   id="linkFace">View Face Section</a>
+      <a href="#piiSection"    id="linkPii">View PII Section</a>
+      <a href="https://example.com" id="linkExternal" target="_blank">External Link (safe)</a>
+    </div>
+  </div>
+
+  <!-- SCROLLABLE CONTENT (for scroll action test) -->
+  <div class="section" id="scrollSection">
+    <h2>Scrollable Content Area (Scroll Action Test)</h2>
+    <div class="scrollable" id="scrollContainer" role="region" aria-label="Scrollable content">
+      <div class="scroll-item">Row 1 — Safe content item with no sensitive data</div>
+      <div class="scroll-item">Row 2 — This record belongs to a fictional entity</div>
+      <div class="scroll-item">Row 3 — Synthetic data only · not real</div>
+      <div class="scroll-item">Row 4 — Non-sensitive content · visible to AI safely</div>
+      <div class="scroll-item">Row 5 — Standard list content for scroll testing</div>
+      <div class="scroll-item">Row 6 — More content to enable scroll action</div>
+      <div class="scroll-item">Row 7 — The extension should be able to scroll here</div>
+      <div class="scroll-item">Row 8 — PII in this area: <span class="value">alex.testperson@fakeemail-sih.example</span></div>
+      <div class="scroll-item">Row 9 — Phone in this area: <span class="value">+91-99999-00001</span></div>
+      <div class="scroll-item">Row 10 — Card in this area: <span class="value">4111 1111 1111 1111</span></div>
+      <div class="scroll-item">Row 11 — Safe non-sensitive text continues here</div>
+      <div class="scroll-item">Row 12 — Testing pagination · all synthetic content</div>
+    </div>
+  </div>
+
+  <!-- DIAGNOSTIC PANEL (visible in page for verification) -->
+  <div class="section" id="diagnosticSection">
+    <h2>Page Self-Diagnostic</h2>
+    <div class="diagnostic" id="diag">Loading…</div>
+  </div>
+
+  <script>
+    // Self-diagnostic — records page elements for verification
+    function runDiag() {
+      const counts = {
+        buttons: document.querySelectorAll('button').length,
+        inputs: document.querySelectorAll('input').length,
+        links: document.querySelectorAll('a').length,
+        images: document.querySelectorAll('img, svg').length,
+        piiFields: document.querySelectorAll('.pii-field').length
+      };
+      const diag = document.getElementById('diag');
+      diag.textContent = [
+        `[TEST PAGE SELF-DIAGNOSTIC]`,
+        `Buttons: ${counts.buttons}`,
+        `Inputs: ${counts.inputs}`,
+        `Links: ${counts.links}`,
+        `SVG/Image elements: ${counts.images}`,
+        `PII display fields: ${counts.piiFields}`,
+        ``,
+        `PII VALUES (all synthetic):`,
+        `  Email    → alex.testperson@fakeemail-sih.example`,
+        `  Phone    → +91-99999-00001`,
+        `  Card     → 4111 1111 1111 1111`,
+        `  SSN-style→ 123-45-6789`,
+        ``,
+        `EXTENSION SHOULD DETECT:`,
+        `  ✓ email_field (regex/DOM)`,
+        `  ✓ phone_field (regex)`,
+        `  ✓ card_number (regex)`,
+        `  ✓ face (MediaPipe / visual worker)`,
+        ``,
+        `EXTENSION SHOULD SANITIZE:`,
+        `  ✓ email → [EMAIL_1]`,
+        `  ✓ phone → [PHONE_1]`,
+        `  ✓ card  → [CARD_1]`,
+        `  ✓ face  → blurred region in screenshot copy`,
+        ``,
+        `RAW PII MUST NOT reach the remote provider.`,
+        `RAW screenshot MUST NOT reach the remote provider.`,
+      ].join('\n');
+    }
+
+    // Button interaction logging (for action regression verification)
+    document.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        console.info('[TestPage] Button clicked:', btn.id, btn.textContent.trim());
+      });
+    });
+
+    runDiag();
+  </script>
+</body>
+</html>

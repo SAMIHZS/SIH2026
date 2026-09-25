@@ -19,17 +19,19 @@ const SIH_SanitizerState = {
   _counter: {},
   _mapping: {},      // token → raw value
   _reverseMapping: {}, // raw value → token
+  _metadata: {},     // token → safe detector metadata
   
   reset() {
     this._counter = {};
     this._mapping = {};
     this._reverseMapping = {};
+    this._metadata = {};
   },
   
   /**
    * Get or create a placeholder token for a detected PII value.
    */
-  getToken(type, rawValue) {
+  getToken(type, rawValue, metadata) {
     if (!rawValue || !rawValue.trim()) return '';
     
     // Check if already mapped
@@ -44,6 +46,7 @@ const SIH_SanitizerState = {
     const token = `[${typeKey}_${this._counter[typeKey]}]`;
     this._mapping[token] = rawValue;
     this._reverseMapping[rawValue] = token;
+    if (metadata) this._metadata[token] = { ...metadata };
     
     return token;
   },
@@ -60,8 +63,8 @@ const SIH_SanitizerState = {
    */
   getDetectionSummary() {
     const summary = [];
-    for (const [token, rawValue] of Object.entries(this._mapping)) {
-      summary.push({ token, rawValue });
+    for (const token of Object.keys(this._mapping)) {
+      summary.push({ token, ...(this._metadata[token] || {}) });
     }
     return summary;
   }
@@ -98,18 +101,26 @@ function sanitizeText(text, detections) {
  */
 function extractPageElements(detections) {
   const elements = [];
-  const processedIds = new Set();
+  const processedElements = new Set();
+  
+  // Prune disconnected elements before extraction
+  if (typeof window.SIH_ElementRegistry !== 'undefined') {
+    window.SIH_ElementRegistry.prune();
+  }
   
   // Collect interactive/important elements
   const selectors = 'a, button, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="menuitem"]';
   const domElements = document.querySelectorAll(selectors);
   
-  domElements.forEach((el, index) => {
+  domElements.forEach((el) => {
     if (typeof window.SIH_DomDetector !== 'undefined' && !window.SIH_DomDetector.isElementVisible(el)) return;
+    if (processedElements.has(el)) return;
+    processedElements.add(el);
     
-    const id = el.id || el.name || `el_${el.tagName.toLowerCase()}_${index}`;
-    if (processedIds.has(id)) return;
-    processedIds.add(id);
+    const id = (typeof window.SIH_ElementRegistry !== 'undefined')
+      ? window.SIH_ElementRegistry.register(el)
+      : (el.id || el.name || `el_${el.tagName.toLowerCase()}`);
+    if (!id) return;
     
     let text = el.textContent ? el.textContent.trim().substring(0, 200) : '';
     let label = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || '';
@@ -162,7 +173,12 @@ function buildSanitizedContext(detections, redactedScreenshot) {
   // Pre-register all detection tokens
   for (const d of detections) {
     if (d.value) {
-      SIH_SanitizerState.getToken(d.type, d.value);
+      const token = SIH_SanitizerState.getToken(d.type, d.value);
+      SIH_SanitizerState._metadata[token] = {
+        type: d.type,
+        source: d.source,
+        confidence: d.confidence
+      };
     }
   }
   

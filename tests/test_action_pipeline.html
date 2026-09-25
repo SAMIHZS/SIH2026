@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Action Target Pipeline Tests — SIH26171 (Step 1)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    p.sub { font-size: 13px; color: #94a3b8; margin-bottom: 20px; }
+    .test-case { background: #1e293b; padding: 12px 16px; margin-bottom: 8px; border-radius: 6px; font-size: 14px; border: 1px solid #334155; }
+    .pass { border-left: 5px solid #22c55e; }
+    .fail { border-left: 5px solid #ef4444; color: #fca5a5; }
+    .status { font-weight: bold; margin-right: 8px; }
+    .status.pass { color: #22c55e; }
+    .status.fail { color: #ef4444; }
+    .summary { display: flex; gap: 16px; margin-bottom: 20px; }
+    .summary-box { flex: 1; background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155; }
+    .summary-num { font-size: 24px; font-weight: bold; }
+    .summary-lbl { font-size: 12px; color: #94a3b8; }
+  </style>
+  <script src="../extension/elementRegistry.js"></script>
+  <script src="../extension/detectors/domDetector.js"></script>
+  <script src="../extension/detectors/regexDetector.js"></script>
+  <script src="../extension/sanitize.js"></script>
+  <script src="../extension/validate.js"></script>
+  <script src="../extension/execute.js"></script>
+</head>
+<body>
+  <h1>🎯 SIH26171 Action Target & Registry Tests</h1>
+  <p class="sub">Step 1 Verification: Internal action-target identity, registry, validator, and executor.</p>
+
+  <div class="summary">
+    <div class="summary-box">
+      <div class="summary-num" id="passedCount" style="color: #22c55e;">0</div>
+      <div class="summary-lbl">Passed Tests</div>
+    </div>
+    <div class="summary-box">
+      <div class="summary-num" id="failedCount" style="color: #ef4444;">0</div>
+      <div class="summary-lbl">Failed Tests</div>
+    </div>
+    <div class="summary-box">
+      <div class="summary-num" id="gateStatus" style="color: #60a5fa;">Running...</div>
+      <div class="summary-lbl">Overall Status</div>
+    </div>
+  </div>
+
+  <div id="results"></div>
+
+  <!-- Part 10 Fixtures -->
+  <div id="static-fixtures" style="padding: 10px; background: #131c2e; margin-bottom: 16px; border-radius: 6px;">
+    <button id="test-button">Open</button>
+    <input id="test-input" placeholder="Type here">
+    <a id="test-link" href="#test">Test Link</a>
+    <input type="password" id="test-pwd" value="Secret123">
+  </div>
+
+  <!-- Dynamic Fixtures Container -->
+  <div id="dynamic-container" style="padding: 10px; background: #131c2e; margin-bottom: 16px; border-radius: 6px;"></div>
+
+  <script>
+    let passed = 0;
+    let failed = 0;
+    const results = document.getElementById('results');
+
+    function assert(name, condition, details = '') {
+      if (condition) passed++; else failed++;
+      const div = document.createElement('div');
+      div.className = `test-case ${condition ? 'pass' : 'fail'}`;
+      div.innerHTML = `<span class="status ${condition ? 'pass' : 'fail'}">${condition ? 'PASS' : 'FAIL'}</span> ${name} ${details ? `<br><small style="color: #94a3b8;">${details}</small>` : ''}`;
+      results.appendChild(div);
+      return condition;
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      // ══════════════════════════════════════════════════════════════
+      // PART 10 — STATIC PAGE TEST
+      // ══════════════════════════════════════════════════════════════
+      const btn = document.getElementById('test-button');
+      const input = document.getElementById('test-input');
+      const link = document.getElementById('test-link');
+
+      let btnClicked = false;
+      btn.addEventListener('click', () => {
+        btnClicked = true;
+      });
+
+      // Run Sanitizer to build SanitizedContext
+      const detections = [];
+      const context = window.SIH_Sanitizer.buildSanitizedContext(detections, null);
+      const elements = context.elements || [];
+
+      // 1. button receives an internal target ID
+      const btnEntry = elements.find(e => e.tag === 'button' && e.text === 'Open');
+      assert("Part 10.1: Button receives an internal target ID", Boolean(btnEntry?.id && btnEntry.id.startsWith('el_')), `ID: ${btnEntry?.id}`);
+
+      // 2. input receives an internal target ID
+      const inputEntry = elements.find(e => e.tag === 'input' && e.label === 'Type here');
+      assert("Part 10.2: Input receives an internal target ID", Boolean(inputEntry?.id && inputEntry.id.startsWith('el_')), `ID: ${inputEntry?.id}`);
+
+      // 3. link receives an internal target ID
+      const linkEntry = elements.find(e => e.tag === 'a' && e.text === 'Test Link');
+      assert("Part 10.3: Link receives an internal target ID", Boolean(linkEntry?.id && linkEntry.id.startsWith('el_')), `ID: ${linkEntry?.id}`);
+
+      // 4. Target IDs appear in SanitizedContext
+      assert("Part 10.4: Target IDs appear in SanitizedContext.elements", elements.length >= 3 && elements.every(e => typeof e.id === 'string' && e.id.startsWith('el_')));
+
+      // 5. Registry resolves the target ID
+      const resolvedBtn = window.SIH_ElementRegistry.resolve(btnEntry.id);
+      assert("Part 10.5: ElementRegistry resolves button target ID to actual DOM element", resolvedBtn === btn);
+
+      // 6. Validator resolves the target ID
+      const valResult = window.SIH_Validator.validateAction({ action: 'click', target: btnEntry.id });
+      assert("Part 10.6: Validator accepts action with registered target ID", valResult.allowed, `Reason: ${valResult.reason}`);
+
+      // 7. Existing visibility checks pass
+      assert("Part 10.7: Visibility check passes for visible button", window.SIH_DomDetector.isElementVisible(btn));
+
+      // 8. Click action reaches executor and succeeds
+      const execResult = window.SIH_Executor.executeAction({ action: 'click', target: btnEntry.id });
+      assert("Part 10.8: Click action reaches executor successfully", execResult.success, `Error: ${execResult.error}`);
+
+      // 9. Actual button click occurs (executeClick uses 100ms timeout for smooth scroll)
+      await new Promise(r => setTimeout(r, 150));
+      assert("Part 10.9: Actual DOM button click event fired", btnClicked);
+
+      // ══════════════════════════════════════════════════════════════
+      // PART 11 — STALE TARGET TEST
+      // ══════════════════════════════════════════════════════════════
+      // 1. Register button A
+      const dynamicContainer = document.getElementById('dynamic-container');
+      const staleBtn = document.createElement('button');
+      staleBtn.textContent = 'Temporary Button A';
+      dynamicContainer.appendChild(staleBtn);
+
+      // 2. Obtain target ID
+      const staleId = window.SIH_ElementRegistry.register(staleBtn);
+      assert("Part 11.1-2: Registered temporary button A", Boolean(staleId && window.SIH_ElementRegistry.resolve(staleId) === staleBtn), `ID: ${staleId}`);
+
+      // 3. Remove button A from DOM
+      dynamicContainer.removeChild(staleBtn);
+      assert("Part 11.3: Button A removed from DOM (disconnected)", !staleBtn.isConnected);
+
+      // 4. Attempt to resolve target ID
+      const staleResolve = window.SIH_ElementRegistry.resolve(staleId);
+      assert("Part 11.4-5: Resolution must fail for disconnected element", staleResolve === null);
+
+      // 6. Validator must reject the action
+      const staleVal = window.SIH_Validator.validateAction({ action: 'click', target: staleId });
+      assert("Part 11.6: Validator rejects action targeting stale/disconnected ID", !staleVal.allowed, `Reason: ${staleVal.reason}`);
+
+      // 7. Registry must NOT redirect the target ID to another element
+      const anotherBtn = document.createElement('button');
+      anotherBtn.textContent = 'Replacement Button';
+      dynamicContainer.appendChild(anotherBtn);
+      const anotherId = window.SIH_ElementRegistry.register(anotherBtn);
+      assert("Part 11.7: Stale ID is NOT redirected or reassigned to new element", anotherId !== staleId && window.SIH_ElementRegistry.resolve(staleId) === null);
+
+      // ══════════════════════════════════════════════════════════════
+      // PART 12 — DYNAMIC DOM TEST
+      // ══════════════════════════════════════════════════════════════
+      // 1. Register button A
+      const dynBtnA = document.createElement('button');
+      dynBtnA.textContent = 'Dynamic Button A';
+      dynamicContainer.appendChild(dynBtnA);
+      const dynIdA1 = window.SIH_ElementRegistry.register(dynBtnA);
+
+      // 2. Run another analysis / re-registration
+      const dynIdA2 = window.SIH_ElementRegistry.register(dynBtnA);
+
+      // 3. Confirm button A still has the exact same target ID
+      assert("Part 12.1-3: Button A preserves same target ID across analyses", dynIdA1 === dynIdA2, `ID 1: ${dynIdA1}, ID 2: ${dynIdA2}`);
+
+      // 4. Add button B
+      const dynBtnB = document.createElement('button');
+      dynBtnB.textContent = 'Dynamic Button B';
+      dynamicContainer.appendChild(dynBtnB);
+
+      // 5. Confirm button B gets a new target ID
+      const dynIdB = window.SIH_ElementRegistry.register(dynBtnB);
+      assert("Part 12.4-5: Button B gets a distinct new target ID", dynIdB !== dynIdA1, `Btn B ID: ${dynIdB}`);
+
+      // 6. Confirm button A's ID does not change
+      const dynIdA3 = window.SIH_ElementRegistry.register(dynBtnA);
+      assert("Part 12.6: Button A's target ID remains unchanged after new elements added", dynIdA3 === dynIdA1);
+
+      // ══════════════════════════════════════════════════════════════
+      // PART 13 — SECURITY REGRESSION TESTS
+      // ══════════════════════════════════════════════════════════════
+      // Reject CSS selector 'body'
+      const secBody = window.SIH_Validator.validateAction({ action: 'click', target: 'body' });
+      assert("Part 13.1: Rejection of CSS selector 'body'", !secBody.allowed, secBody.reason);
+
+      // Reject CSS selector '#some-button'
+      const secId = window.SIH_Validator.validateAction({ action: 'click', target: '#some-button' });
+      assert("Part 13.2: Rejection of CSS selector '#some-button'", !secId.allowed, secId.reason);
+
+      // Reject CSS selector '.dangerous-class'
+      const secClass = window.SIH_Validator.validateAction({ action: 'click', target: '.dangerous-class' });
+      assert("Part 13.3: Rejection of CSS selector '.dangerous-class'", !secClass.allowed, secClass.reason);
+
+      // Reject CSS attribute selector '[onclick]'
+      const secAttr = window.SIH_Validator.validateAction({ action: 'click', target: '[onclick]' });
+      assert("Part 13.4: Rejection of CSS selector '[onclick]'", !secAttr.allowed, secAttr.reason);
+
+      // Reject javascript: protocol pattern
+      const secJs = window.SIH_Validator.validateAction({ action: 'click', target: 'javascript:alert(1)' });
+      assert("Part 13.5: Rejection of 'javascript:...' pattern", !secJs.allowed, secJs.reason);
+
+      // Reject eval pattern
+      const secEval = window.SIH_Validator.validateAction({ action: 'click', target: 'eval(alert(1))' });
+      assert("Part 13.6: Rejection of 'eval(...)' pattern", !secEval.allowed, secEval.reason);
+
+      // Verify unsupported actions remain rejected
+      const unsupp1 = window.SIH_Validator.validateAction({ action: 'navigate', target: btnEntry.id });
+      assert("Part 13.7: Unsupported action 'navigate' rejected", !unsupp1.allowed, unsupp1.reason);
+
+      const unsupp2 = window.SIH_Validator.validateAction({ action: 'exec', target: btnEntry.id });
+      assert("Part 13.8: Unsupported action 'exec' rejected", !unsupp2.allowed, unsupp2.reason);
+
+      // Verify protected password element remains protected even when registered
+      const pwdEl = document.getElementById('test-pwd');
+      const pwdId = window.SIH_ElementRegistry.register(pwdEl);
+      const pwdVal = window.SIH_Validator.validateAction({ action: 'type', target: pwdId, value: 'hacked' });
+      assert("Part 13.9: Protected password element rejects automation even when registered", !pwdVal.allowed, pwdVal.reason);
+
+      // Type action validation checks
+      const typeNoVal = window.SIH_Validator.validateAction({ action: 'type', target: inputEntry.id });
+      assert("Part 13.10: Type action without value rejected", !typeNoVal.allowed, typeNoVal.reason);
+
+      const typeOnBtn = window.SIH_Validator.validateAction({ action: 'type', target: btnEntry.id, value: 'test' });
+      assert("Part 13.11: Type action on non-input button element rejected", !typeOnBtn.allowed, typeOnBtn.reason);
+
+      // Update Summary UI
+      document.getElementById('passedCount').textContent = passed;
+      document.getElementById('failedCount').textContent = failed;
+      const statusEl = document.getElementById('gateStatus');
+      if (failed === 0) {
+        statusEl.textContent = 'ALL PASSED ✅';
+        statusEl.style.color = '#22c55e';
+      } else {
+        statusEl.textContent = `${failed} FAILED ❌`;
+        statusEl.style.color = '#ef4444';
+      }
+    });
+  </script>
+</body>
+</html>

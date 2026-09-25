@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Privacy State Machine & Context Invalidation Verification (Tests P1–P6)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; background: #0f172a; color: #f8fafc; }
+    h1 { color: #38bdf8; border-bottom: 1px solid #334155; padding-bottom: 12px; }
+    h2 { color: #94a3b8; font-size: 16px; margin-top: 24px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .test-row { display: flex; justify-content: space-between; padding: 10px 14px; margin: 6px 0; border-radius: 6px; background: #1e293b; font-size: 14px; }
+    .pass { border-left: 4px solid #10b981; }
+    .fail { border-left: 4px solid #ef4444; }
+    .badge { font-weight: bold; padding: 3px 10px; border-radius: 4px; font-size: 12px; }
+    .badge-pass { background: #065f46; color: #6ee7b7; }
+    .badge-fail { background: #7f1d1d; color: #fca5a5; }
+    .summary-box { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin: 20px 0; }
+  </style>
+  <script src="../extension/elementRegistry.js"></script>
+  <script src="../extension/validate.js"></script>
+</head>
+<body>
+  <h1>Privacy State Machine & Context Invalidation (Tests P1–P6)</h1>
+  <div class="summary-box">
+    <div id="overall-status" style="font-size: 18px; font-weight: bold; color: #38bdf8;">Running Privacy Invalidation Tests...</div>
+    <div id="stats" style="margin-top: 8px; color: #94a3b8;"></div>
+  </div>
+
+  <div id="test-results"></div>
+
+  <script>
+    let totalTests = 0;
+    let passedTests = 0;
+
+    function record(name, condition, detail) {
+      totalTests++;
+      if (condition) passedTests++;
+      const container = document.getElementById('test-results');
+      const row = document.createElement('div');
+      row.className = `test-row ${condition ? 'pass' : 'fail'}`;
+      
+      const titleSpan = document.createElement('span');
+      titleSpan.innerHTML = `<strong>${name}</strong>${detail ? `<span style="color:#94a3b8; margin-left:8px;">— ${detail}</span>` : ''}`;
+
+      const badge = document.createElement('span');
+      badge.className = `badge ${condition ? 'badge-pass' : 'badge-fail'}`;
+      badge.textContent = condition ? 'PASS' : 'FAIL';
+
+      row.appendChild(titleSpan);
+      row.appendChild(badge);
+      container.appendChild(row);
+
+      updateSummary();
+    }
+
+    function updateSummary() {
+      const allPassed = passedTests === totalTests;
+      const statusEl = document.getElementById('overall-status');
+      statusEl.textContent = allPassed ? `All Privacy Invalidation Tests Passed (${passedTests}/${totalTests})` : `Tests Failed (${totalTests - passedTests} failures)`;
+      statusEl.style.color = allPassed ? '#10b981' : '#ef4444';
+      document.getElementById('stats').textContent = `${passedTests} passed out of ${totalTests} assertions.`;
+    }
+
+    // ── Privacy State Machine Simulation ──
+    class BrowserPrivacyStateMachine {
+      constructor() {
+        this.tabPerceptionState = new Map();
+        this.activeTabId = null;
+        this.globalGeneration = 0;
+        this.discards = [];
+        this.remoteTransmissions = [];
+      }
+
+      activateTab(tabId, url = 'https://example.com/page') {
+        const prevTabId = this.activeTabId;
+        this.activeTabId = tabId;
+        if (prevTabId && prevTabId !== tabId) this.invalidateTab(prevTabId, 'tab_deactivated');
+        return this.invalidateTab(tabId, 'tab_activated', url);
+      }
+
+      navigateTab(tabId, newUrl) {
+        return this.invalidateTab(tabId, 'navigation', newUrl);
+      }
+
+      invalidateTab(tabId, reason, url = '') {
+        this.globalGeneration++;
+        const nextGen = this.globalGeneration;
+        const existing = this.tabPerceptionState.get(tabId);
+        if (existing) {
+          existing.isValid = false;
+          existing.sanitizedContext = null;
+          existing.screenshot = null;
+          existing.detections = [];
+          existing.generation = nextGen;
+          if (url) existing.navigationIdentity = url;
+        } else {
+          this.tabPerceptionState.set(tabId, {
+            tabId,
+            generation: nextGen,
+            navigationIdentity: url || '',
+            sanitizedContext: null,
+            screenshot: null,
+            detections: [],
+            isValid: false
+          });
+        }
+        return nextGen;
+      }
+
+      commitAnalysisResult(tabId, generation, navigationIdentity, sanitizedContext, screenshot) {
+        const currentTabState = this.tabPerceptionState.get(tabId);
+        if (
+          tabId !== this.activeTabId ||
+          !currentTabState ||
+          generation !== currentTabState.generation ||
+          (navigationIdentity && currentTabState.navigationIdentity && navigationIdentity !== currentTabState.navigationIdentity)
+        ) {
+          this.discards.push({ tabId, generation, reason: 'tab/navigation changed' });
+          return { ok: false, discarded: true };
+        }
+        currentTabState.sanitizedContext = sanitizedContext;
+        currentTabState.screenshot = screenshot || null;
+        currentTabState.isValid = true;
+        return { ok: true, discarded: false };
+      }
+
+      sendToProvider(request) {
+        const { tabId, generation, navigationIdentity, userMessage, sanitizedContext } = request;
+        const activeState = this.tabPerceptionState.get(this.activeTabId);
+        const failClosed = (reason) => ({
+          allowed: false,
+          error: 'CONTEXT_INVALIDATED',
+          message: 'Page context changed. Please retry.',
+          reason
+        });
+
+        if (!this.activeTabId || !activeState) return failClosed('No active tab state found');
+        if (tabId !== this.activeTabId) return failClosed('Tab ID mismatch');
+        if (generation !== undefined && generation !== activeState.generation) return failClosed('Generation mismatch');
+        if (navigationIdentity && activeState.navigationIdentity && navigationIdentity !== activeState.navigationIdentity) return failClosed('Navigation identity mismatch');
+        const ctx = sanitizedContext || activeState.sanitizedContext;
+        if (!ctx || !activeState.isValid) return failClosed('No valid sanitized context');
+        if (ctx.screenshot) {
+          if (!activeState.screenshot || activeState.screenshot !== ctx.screenshot) {
+            return failClosed('Screenshot data does not match active page generation');
+          }
+        }
+        this.remoteTransmissions.push(request);
+        return { allowed: true, response: { type: 'text', message: 'OK' } };
+      }
+    }
+
+    // ── Run Suite ──
+    const sm = new BrowserPrivacyStateMachine();
+
+    // TEST P1
+    const p1GenA = sm.activateTab(101, 'https://site-a.com');
+    const p1GenB = sm.activateTab(102, 'https://site-b.com');
+    const p1Late = sm.commitAnalysisResult(101, p1GenA, 'https://site-a.com', { page: { title: 'Page A' } }, 'data:image/png;base64,AAA');
+    record('TEST P1 — Tab switch during analysis', p1Late.discarded && sm.tabPerceptionState.get(102).sanitizedContext === null, 'Stale Tab A perception discarded; no Tab A context in Tab B');
+
+    // TEST P2
+    const p2Gen1 = sm.activateTab(201, 'https://site.com/p1');
+    const p2Gen2 = sm.navigateTab(201, 'https://site.com/p2');
+    const p2Late = sm.commitAnalysisResult(201, p2Gen1, 'https://site.com/p1', { page: { title: 'P1' } });
+    record('TEST P2 — Navigation during analysis', p2Late.discarded && sm.tabPerceptionState.get(201).sanitizedContext === null, 'Stale pre-navigation result discarded');
+
+    // TEST P3
+    const p3GenA = sm.activateTab(301, 'https://site-a.com');
+    sm.commitAnalysisResult(301, p3GenA, 'https://site-a.com', { page: { title: 'Page A' } });
+    const p3GenB = sm.activateTab(302, 'https://site-b.com');
+    const p3Chat = sm.sendToProvider({ tabId: 301, generation: p3GenA, navigationIdentity: 'https://site-a.com', userMessage: 'test', sanitizedContext: { page: { title: 'Page A' } } });
+    record('TEST P3 — Chat during tab switch', !p3Chat.allowed && p3Chat.error === 'CONTEXT_INVALIDATED', 'Tab A chat request blocked after switch to Tab B');
+
+    // TEST P4
+    const p4Gen = sm.activateTab(401, 'https://site-a.com');
+    sm.commitAnalysisResult(401, p4Gen, 'https://site-a.com', { page: { title: 'Page A' } });
+    sm.invalidateTab(401, 'manual_refresh');
+    const p4Chat = sm.sendToProvider({ tabId: 401, generation: p4Gen, userMessage: 'test', sanitizedContext: { page: { title: 'Page A' } } });
+    record('TEST P4 — Provider request after invalidation', !p4Chat.allowed && p4Chat.message === 'Page context changed. Please retry.', 'Cloud request blocked fail-closed');
+
+    // TEST P5
+    const p5GenA = sm.activateTab(501, 'https://site-a.com');
+    const p5Shot = 'data:image/png;base64,A';
+    sm.commitAnalysisResult(501, p5GenA, 'https://site-a.com', { page: { title: 'Page A' }, screenshot: p5Shot }, p5Shot);
+    const p5GenB = sm.activateTab(502, 'https://site-b.com');
+    sm.commitAnalysisResult(502, p5GenB, 'https://site-b.com', { page: { title: 'Page B' } }, null);
+    const p5Chat = sm.sendToProvider({ tabId: 502, generation: p5GenB, userMessage: 'test', sanitizedContext: { page: { title: 'Page B' }, screenshot: p5Shot } });
+    record('TEST P5 — Screenshot ownership', !p5Chat.allowed, 'Page A screenshot rejected when attempting to transmit on Page B');
+
+    // TEST P6
+    const btn = document.createElement('button');
+    document.body.appendChild(btn);
+    window.SIH_ElementRegistry.setContextGeneration(10, 'https://site-a.com');
+    const elId = window.SIH_ElementRegistry.register(btn, 10);
+    const valGood = window.SIH_Validator.validateAction({ action: 'click', target: elId, generation: 10 }, 10);
+    window.SIH_ElementRegistry.setContextGeneration(11, 'https://site-b.com');
+    const valBad = window.SIH_Validator.validateAction({ action: 'click', target: elId, generation: 10 }, 11);
+    const valBadNoGen = window.SIH_Validator.validateAction({ action: 'click', target: elId }, 11);
+    record('TEST P6 — ElementRegistry isolation', valGood.allowed && !valBad.allowed && !valBadNoGen.allowed, 'Page A element ID rejected under Page B context');
+  </script>
+</body>
+</html>

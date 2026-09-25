@@ -5,12 +5,15 @@
   "description": "Privacy-first browser assistant that detects and sanitizes PII locally before sending context to remote AI.",
   "permissions": [
     "activeTab",
+    "offscreen",
     "sidePanel",
     "storage",
     "tabs"
   ],
   "host_permissions": [
-    "http://localhost:8000/*"
+    "https://api.groq.com/*",
+    "https://openrouter.ai/*",
+    "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -19,8 +22,18 @@
     {
       "matches": ["<all_urls>"],
       "js": [
+        "theme.js",
         "detectors/domDetector.js",
         "detectors/regexDetector.js",
+        "detectors/ocrDetector.js",
+        "detectors/visionDetector.js",
+        "vision/mediaPipeLoader.js",
+        "vision/visualPipeline.js",
+        "metrics.js",
+        "detectionGate.js",
+        "detectionFusion.js",
+        "vision/redactor.js",
+        "elementRegistry.js",
         "sanitize.js",
         "validate.js",
         "execute.js",
@@ -37,6 +50,10 @@
       "128": "icons/icon128.png"
     }
   },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "side_panel": {
     "default_path": "sidebar.html"
   },
@@ -44,5 +61,11 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["vendor/**", "vision/**"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

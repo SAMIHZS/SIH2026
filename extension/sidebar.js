@@ -1,62 +1,44 @@
 /**
- * Sidebar Script — SIH26171 Phase 1
- *
- * Responsibilities:
- * 1. Manages Tab switching (Chat vs Privacy View)
- * 2. Receives and displays SanitizedContext updates from Background / Content script
- * 3. Handles user chat prompts and forwards them to background (`SEND_TO_BACKEND`)
- * 4. Displays assistant responses (text or action) with visible mock badges if fallback
- * 5. Sends validated actions to Content Script for execution (`EXECUTE_ACTION`)
- * 6. Renders the live Privacy Pipeline visualization (Raw -> Detected -> Sanitized -> Network Safe)
+ * Minimal Assistant Sidebar Script
  */
-
 document.addEventListener('DOMContentLoaded', () => {
   // DOM Elements
-  const tabChat = document.getElementById('tabChat');
-  const tabPrivacy = document.getElementById('tabPrivacy');
-  const panelChat = document.getElementById('panelChat');
-  const panelPrivacy = document.getElementById('panelPrivacy');
-  const messageContainer = document.getElementById('messageContainer');
+  const emptyState = document.getElementById('emptyState');
+  const conversationStream = document.getElementById('conversationStream');
   const userInput = document.getElementById('userInput');
   const sendBtn = document.getElementById('sendBtn');
-  const contextStatus = document.getElementById('contextStatus');
-  const contextIndicator = document.getElementById('contextIndicator');
-  const privacyBadge = document.getElementById('privacyBadge');
+  const closeBtn = document.getElementById('closeBtn');
 
-  // Privacy View DOM Elements
-  const detectionList = document.getElementById('detectionList');
-  const sanitizedView = document.getElementById('sanitizedView');
-  const networkView = document.getElementById('networkView');
+  // Screenshot Toggle
+  const screenshotToggleEl = document.getElementById('screenshotToggle');
+  const screenshotNoteEl = document.getElementById('screenshotNote');
+  const SCREENSHOT_KEY = 'sihScreenshotEnabled';
 
-  // Local State
+  // Security Context Elements
+  const securityBanner = document.getElementById('securityBanner');
+  const securityNoticeText = document.getElementById('securityNoticeText');
+  const detailsToggle = document.getElementById('detailsToggle');
+  const detailsDrawer = document.getElementById('detailsDrawer');
+  const detailsList = document.getElementById('detailsList');
+
+  // State
   let currentContext = null;
   let currentMapping = null;
   let currentDetectionCount = 0;
   let isAwaitingResponse = false;
+  let currentTabId = null;            // Track which tab's context we're displaying
+  let currentGeneration = null;       // Current perception generation token
+  let currentNavigationIdentity = null;
+  let pendingRequestTabId = null;
+  let pendingRequestGeneration = null;
 
-  // ── 1. Tab Navigation ──
-  tabChat.addEventListener('click', () => switchTab('chat'));
-  tabPrivacy.addEventListener('click', () => switchTab('privacy'));
-
-  function switchTab(tab) {
-    if (tab === 'chat') {
-      tabChat.classList.add('active');
-      tabPrivacy.classList.remove('active');
-      panelChat.classList.add('active');
-      panelPrivacy.classList.remove('active');
-    } else {
-      tabPrivacy.classList.add('active');
-      tabChat.classList.remove('active');
-      panelPrivacy.classList.add('active');
-      panelChat.classList.remove('active');
-      renderPrivacyView();
-    }
-  }
-
-  // ── 2. Context Sync with Background ──
+  // ── 1. Context Sync with Background ──
   function fetchLatestContext() {
     chrome.runtime.sendMessage({ type: 'GET_LATEST_CONTEXT' }, (response) => {
       if (chrome.runtime.lastError || !response) return;
+      if (response.tabId) currentTabId = response.tabId;
+      if (response.generation) currentGeneration = response.generation;
+      if (response.navigationIdentity) currentNavigationIdentity = response.navigationIdentity;
       if (response.sanitizedContext) {
         updateContext(response.sanitizedContext, response.detectionCount, response.mapping);
       }
@@ -64,7 +46,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === 'CONTEXT_INVALIDATED') {
+      // Tab or page just changed — immediately invalidate and show loading state
+      currentTabId = message.tabId || null;
+      currentGeneration = message.generation || null;
+      currentNavigationIdentity = message.navigationIdentity || null;
+      currentContext = null;
+      currentDetectionCount = 0;
+      currentMapping = null;
+      // Invalidate any in-flight chat requests for the old page
+      pendingRequestTabId = null;
+      pendingRequestGeneration = null;
+      showLoadingState();
+      return;
+    }
     if (message.type === 'CONTEXT_UPDATE') {
+      // Ignore updates from tabs that are no longer active
+      if (message.tabId && currentTabId && message.tabId !== currentTabId) return;
+      if (message.tabId) currentTabId = message.tabId;
+      if (message.generation) currentGeneration = message.generation;
+      if (message.navigationIdentity) currentNavigationIdentity = message.navigationIdentity;
       updateContext(message.sanitizedContext, message.detectionCount, message.mapping);
     }
   });
@@ -73,153 +74,210 @@ document.addEventListener('DOMContentLoaded', () => {
     currentContext = context;
     currentDetectionCount = detectionCount || 0;
     currentMapping = mapping || null;
-
-    if (contextIndicator) {
-      const dot = contextIndicator.querySelector('.ctx-dot');
-      if (dot) dot.classList.remove('analyzing');
-    }
-
-    const title = context.page?.title || 'Current Page';
-    const elemCount = context.elements?.length || 0;
-    contextStatus.textContent = `${title.substring(0, 24)} (${elemCount} elements, ${currentDetectionCount} PII protected)`;
-
-    if (currentDetectionCount > 0) {
-      privacyBadge.className = 'privacy-badge';
-      privacyBadge.innerHTML = '<span class="badge-dot"></span><span class="badge-text">Protected</span>';
+    if (context) {
+      renderSecurityContext();
     } else {
-      privacyBadge.className = 'privacy-badge';
-      privacyBadge.innerHTML = '<span class="badge-dot"></span><span class="badge-text">Safe</span>';
-    }
-
-    // Refresh privacy view if open
-    if (panelPrivacy.classList.contains('active')) {
-      renderPrivacyView();
+      // Null context = page still loading or no analysis yet
+      renderSecurityContext();
     }
   }
 
-  // ── 3. Privacy Pipeline Visualizer ──
-  function renderPrivacyView() {
+  /** Show an immediate "switching tabs" loading state in the security banner. */
+  function showLoadingState() {
+    securityBanner.style.display = 'block';
+    securityNoticeText.textContent = 'Loading current page…';
+    detailsDrawer.style.display = 'none';
+    detailsToggle.textContent = 'Protection details +';
+    detailsList.innerHTML = '';
+  }
+
+  function renderSecurityContext() {
     if (!currentContext) {
-      detectionList.innerHTML = '<p class="empty-state">No page analyzed yet.</p>';
-      sanitizedView.innerHTML = '<p class="empty-state">Waiting for page analysis...</p>';
-      networkView.innerHTML = '<p class="empty-state">No network payload generated yet.</p>';
+      // No context yet (switching tabs / loading)
+      if (securityBanner.style.display === 'none') {
+        securityBanner.style.display = 'block';
+        securityNoticeText.textContent = 'Loading current page…';
+      }
       return;
     }
+    if (currentDetectionCount > 0) {
+      securityBanner.style.display = 'block';
+      const label = currentDetectionCount === 1
+        ? '1 sensitive item protected locally'
+        : `${currentDetectionCount} sensitive items protected locally`;
+      securityNoticeText.textContent = label;
 
-    // A. Detected Sensitive Data
-    if (currentMapping && Object.keys(currentMapping).length > 0) {
-      let html = '';
-      for (const [token, meta] of Object.entries(currentMapping)) {
-        html += `
-          <div class="detection-item">
-            <div>
-              <span class="detection-type">${escapeHtml(meta.type || 'PII')}</span>
-              <span class="detection-label">${escapeHtml(meta.source || 'detector')}</span>
+      if (Array.isArray(currentMapping) && currentMapping.length > 0) {
+        let html = '';
+        for (const meta of currentMapping) {
+          const typeName = formatTypeName(meta.type);
+          const maskType = meta.type === 'email' ? 'Redacted' : 'Masked';
+          html += `
+            <div class="details-row">
+              <span class="details-type">${escapeHtml(typeName)}</span>
+              <span class="details-badge">${escapeHtml(maskType)}</span>
             </div>
-            <span class="token">${escapeHtml(token)}</span>
+          `;
+        }
+        detailsList.innerHTML = html;
+      } else {
+        detailsList.innerHTML = `
+          <div class="details-row">
+            <span class="details-type">Sensitive content</span>
+            <span class="details-badge">Protected</span>
           </div>
         `;
       }
-      detectionList.innerHTML = html;
-    } else if (currentDetectionCount > 0) {
-      detectionList.innerHTML = `
-        <div class="detection-item">
-          <span class="detection-type">PROTECTED PII</span>
-          <span class="token">${currentDetectionCount} items sanitized</span>
-        </div>
-      `;
     } else {
-      detectionList.innerHTML = '<p class="empty-state">No sensitive PII detected on this page.</p>';
+      securityBanner.style.display = 'none';
+      detailsDrawer.style.display = 'none';
     }
-
-    // B. Sanitized Representation
-    const sanitizedText = currentContext.text || '';
-    if (sanitizedText) {
-      // Highlight sanitized tokens like [EMAIL_1], [PHONE_1], etc.
-      const highlighted = escapeHtml(sanitizedText).replace(
-        /(\[[A-Z0-9_]+(?:_[0-9]+)?\])/g,
-        '<span class="token">$1</span>'
-      );
-      sanitizedView.innerHTML = highlighted;
-    } else {
-      sanitizedView.innerHTML = '<p class="empty-state">No text extracted.</p>';
-    }
-
-    // C. Network Context (Exact payload sent to remote AI)
-    const payloadSample = {
-      sanitized_context: {
-        page: currentContext.page,
-        elements_count: currentContext.elements?.length || 0,
-        sample_elements: (currentContext.elements || []).slice(0, 5),
-        text_preview: (currentContext.text || '').substring(0, 300) + '...'
-      }
-    };
-    networkView.textContent = JSON.stringify(payloadSample, null, 2);
   }
 
-  // ── 4. Chat & User Interaction ──
+  function formatTypeName(rawType) {
+    if (!rawType) return 'Sensitive item';
+    const clean = rawType.replace(/_/g, ' ').toLowerCase();
+    return clean.charAt(0).toUpperCase() + clean.slice(1);
+  }
+
+  // Toggle details drawer
+  detailsToggle.addEventListener('click', () => {
+    const isHidden = detailsDrawer.style.display === 'none';
+    detailsDrawer.style.display = isHidden ? 'block' : 'none';
+    detailsToggle.textContent = isHidden ? 'Protection details −' : 'Protection details +';
+  });
+
+  // ── 2. User Suggestions ──
+  document.querySelectorAll('.suggestion-row').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const prompt = btn.getAttribute('data-prompt');
+      if (prompt && !isAwaitingResponse) {
+        handleUserPrompt(prompt);
+      }
+    });
+  });
+
+  // ── 3. Input Handling ──
+  userInput.addEventListener('input', () => {
+    userInput.style.height = 'auto';
+    userInput.style.height = Math.min(userInput.scrollHeight, 120) + 'px';
+    sendBtn.disabled = !userInput.value.trim() || isAwaitingResponse;
+  });
+
   userInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      const text = userInput.value.trim();
+      if (text && !isAwaitingResponse) {
+        handleUserPrompt(text);
+      }
     }
   });
 
-  sendBtn.addEventListener('click', handleSend);
-
-  async function handleSend() {
+  sendBtn.addEventListener('click', () => {
     const text = userInput.value.trim();
-    if (!text || isAwaitingResponse) return;
+    if (text && !isAwaitingResponse) {
+      handleUserPrompt(text);
+    }
+  });
+
+  // ── 4. Prompt Processing Flow ──
+  async function handleUserPrompt(promptText) {
+    if (isAwaitingResponse) return;
+
+    // Fail closed if context is missing or loading
+    if (!currentContext || currentGeneration == null) {
+      appendAssistantMessage('Page context is loading or invalid. Please wait for the page to be analyzed.');
+      return;
+    }
+
+    // Switch view if in empty state
+    if (emptyState.style.display !== 'none') {
+      emptyState.style.display = 'none';
+      conversationStream.style.display = 'flex';
+    }
+
+    // Capture exact context identity for this request
+    const requestTabId = currentTabId;
+    const requestGeneration = currentGeneration;
+    const requestNavIdentity = currentNavigationIdentity;
+    pendingRequestTabId = requestTabId;
+    pendingRequestGeneration = requestGeneration;
 
     // Append user message
-    appendMessage('user', text);
+    appendUserMessage(promptText);
     userInput.value = '';
     userInput.style.height = 'auto';
-
-    isAwaitingResponse = true;
     sendBtn.disabled = true;
+    isAwaitingResponse = true;
 
-    // Show loading assistant message
-    const loadingMsgEl = appendLoadingMessage();
+    // Append loading indicator
+    const loadingEl = appendLoadingIndicator();
 
     try {
-      const response = await sendToBackend(text);
-      loadingMsgEl.remove();
+      const response = await sendToBackend(promptText, requestTabId, requestGeneration, requestNavIdentity);
+      loadingEl.remove();
+
+      // STALE CHAT RESPONSE GUARD:
+      // If user switched tabs or navigated while awaiting response, DISCARD IT!
+      if (
+        currentTabId !== requestTabId ||
+        currentGeneration !== requestGeneration ||
+        pendingRequestGeneration !== requestGeneration
+      ) {
+        console.info(`[PRIVACY STATE] STALE CHAT RESPONSE DISCARDED: response belongs to Tab ${requestTabId} Gen ${requestGeneration}, active is Tab ${currentTabId} Gen ${currentGeneration}`);
+        return;
+      }
 
       if (!response) {
-        appendMessage('assistant', 'Error: No response from assistant service.');
+        appendAssistantMessage('Unable to complete request: No response received.');
         return;
       }
 
       if (response.error) {
-        appendErrorMessage(response.error);
+        appendAssistantMessage(`Unable to process request: ${response.error}`);
+        return;
+      }
+
+      // Clearly label mock fallback responses
+      if (response.isMock) {
+        if (response.type === 'text') {
+          appendAssistantMessage((response.message || '') + '\n\n⚠️ *Mock response — configure a provider in Settings for real AI.*');
+        } else if (response.type === 'action' && response.action) {
+          await handleActionResponse(response.action, true, requestGeneration);
+        } else {
+          appendAssistantMessage('[MOCK] ' + (response.mockReason || 'Mock fallback response'));
+        }
         return;
       }
 
       if (response.type === 'action' && response.action) {
-        await handleActionResponse(response.action, response.isMock, response.mockReason);
+        await handleActionResponse(response.action, false, requestGeneration);
       } else if (response.type === 'text' || response.message) {
-        appendAssistantTextMessage(response.message || 'Understood.', response.isMock, response.mockReason);
+        appendAssistantMessage(response.message || 'Understood.');
       } else {
-        appendMessage('assistant', 'Received unexpected response format.');
+        appendAssistantMessage('Received unexpected response format.');
       }
     } catch (err) {
-      loadingMsgEl.remove();
-      appendErrorMessage(`Failed to reach assistant: ${err.message}`);
+      loadingEl.remove();
+      appendAssistantMessage(`Unable to connect: ${err.message}`);
     } finally {
       isAwaitingResponse = false;
-      sendBtn.disabled = false;
+      sendBtn.disabled = !userInput.value.trim();
       userInput.focus();
     }
   }
 
-  function sendToBackend(userMessage) {
+  function sendToBackend(userMessage, tabId, generation, navigationIdentity) {
     return new Promise((resolve) => {
       chrome.runtime.sendMessage(
         {
           type: 'SEND_TO_BACKEND',
           userMessage: userMessage,
-          sanitizedContext: currentContext
+          sanitizedContext: currentContext,
+          tabId,
+          generation,
+          navigationIdentity
         },
         (response) => {
           if (chrome.runtime.lastError) {
@@ -232,126 +290,103 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ── 5. Action Execution Flow ──
-  async function handleActionResponse(action, isMock, mockReason) {
-    const actionEl = document.createElement('div');
-    actionEl.className = 'message assistant';
+  // ── 5. Message Rendering ──
+  function appendUserMessage(text) {
+    const group = document.createElement('div');
+    group.className = 'message-group';
+    group.innerHTML = `
+      <div class="message-role">You</div>
+      <div class="message-body"><p>${escapeHtml(text)}</p></div>
+    `;
+    conversationStream.appendChild(group);
+    scrollToBottom();
+  }
 
-    let mockHtml = '';
-    if (isMock) {
-      mockHtml = `<div class="message-mock">⚠️ Demo Resilience: ${escapeHtml(mockReason || 'Mock fallback')}</div>`;
-    }
+  function appendLoadingIndicator() {
+    const group = document.createElement('div');
+    group.className = 'message-group';
+    group.innerHTML = `
+      <div class="message-role">Assistant</div>
+      <div class="message-body"><p style="color: #a1a1aa;">Thinking...</p></div>
+    `;
+    conversationStream.appendChild(group);
+    scrollToBottom();
+    return group;
+  }
 
-    actionEl.innerHTML = `
-      <div class="message-avatar">🤖</div>
-      <div class="message-content">
-        <p>I would like to perform an action on the page:</p>
-        <div class="message-action">
-          <div class="action-type">ACTION: ${escapeHtml(action.action)}</div>
-          <div class="action-detail">Target: <code>${escapeHtml(action.target || 'None')}</code></div>
-          ${action.value ? `<div class="action-detail">Value: <code>${escapeHtml(action.value)}</code></div>` : ''}
-          ${action.riskLevel ? `<div class="action-detail">Risk: ${escapeHtml(action.riskLevel)}</div>` : ''}
-          <div class="action-result" id="actionStatus">Executing local validation & action...</div>
+  function appendAssistantMessage(text) {
+    const group = document.createElement('div');
+    group.className = 'message-group';
+    group.innerHTML = `
+      <div class="message-role">Assistant</div>
+      <div class="message-body">${formatMarkdown(text)}</div>
+    `;
+    conversationStream.appendChild(group);
+    scrollToBottom();
+  }
+
+  async function handleActionResponse(action, isMock = false, generation = null) {
+    const group = document.createElement('div');
+    group.className = 'message-group';
+    group.innerHTML = `
+      <div class="message-role">Assistant</div>
+      <div class="message-body">
+        <p>Executing requested action:</p>
+        <div class="action-receipt">
+          <div class="action-row">
+            <span class="action-label">Action:</span>
+            <span class="action-type">${escapeHtml(action.action || '')}</span>
+          </div>
+          <div class="action-row">
+            <span class="action-label">Target:</span>
+            <span class="action-target">${escapeHtml(action.target || 'None')}</span>
+          </div>
+          ${action.value ? `<div class="action-row"><span class="action-label">Value:</span><span>${escapeHtml(action.value)}</span></div>` : ''}
+          <div class="action-status" id="actionStatus">Executing in browser...</div>
         </div>
-        ${mockHtml}
       </div>
     `;
-    messageContainer.appendChild(actionEl);
+    conversationStream.appendChild(group);
     scrollToBottom();
 
-    // Query active tab to execute action via content script
-    const statusEl = actionEl.querySelector('#actionStatus');
+    // Execute via active tab content script
+    const statusEl = group.querySelector('#actionStatus');
     try {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tabs || tabs.length === 0) {
-        statusEl.className = 'action-result failed';
-        statusEl.textContent = '❌ Execution failed: No active tab found.';
+      const tabId = tabs[0]?.id;
+      if (!tabId) {
+        statusEl.className = 'action-status failed';
+        statusEl.textContent = '● Failed: No active tab found.';
         return;
       }
 
-      chrome.tabs.sendMessage(
-        tabs[0].id,
-        { type: 'EXECUTE_ACTION', action: action },
-        (res) => {
-          if (chrome.runtime.lastError) {
-            statusEl.className = 'action-result failed';
-            statusEl.textContent = `❌ Execution failed: ${chrome.runtime.lastError.message}`;
-          } else if (res && res.success) {
-            statusEl.className = 'action-result success';
-            statusEl.textContent = '✅ Validated & Executed safely in browser.';
-          } else {
-            statusEl.className = 'action-result failed';
-            statusEl.textContent = `❌ ${res?.error || 'Validation rejected action.'}`;
-          }
+      // Action carries generation to verify element identity against current page
+      const actionPayload = {
+        ...action,
+        generation: generation || currentGeneration
+      };
+
+      chrome.tabs.sendMessage(tabId, { type: 'EXECUTE_ACTION', action: actionPayload }, (res) => {
+        if (chrome.runtime.lastError) {
+          statusEl.className = 'action-status failed';
+          statusEl.textContent = `● Failed: ${chrome.runtime.lastError.message}`;
+        } else if (res && res.success) {
+          statusEl.className = 'action-status success';
+          statusEl.textContent = '● Executed safely in browser';
+        } else {
+          statusEl.className = 'action-status failed';
+          statusEl.textContent = `● Failed: ${res?.error || 'Validation rejected action.'}`;
         }
-      );
+      });
     } catch (e) {
-      statusEl.className = 'action-result failed';
-      statusEl.textContent = `❌ Execution error: ${e.message}`;
+      statusEl.className = 'action-status failed';
+      statusEl.textContent = `● Error: ${e.message}`;
     }
-  }
-
-  // ── 6. Message Rendering Helpers ──
-  function appendMessage(role, text) {
-    const msg = document.createElement('div');
-    msg.className = `message ${role}`;
-    msg.innerHTML = `
-      <div class="message-avatar">${role === 'user' ? '👤' : '🤖'}</div>
-      <div class="message-content">
-        <p>${escapeHtml(text)}</p>
-      </div>
-    `;
-    messageContainer.appendChild(msg);
-    scrollToBottom();
-  }
-
-  function appendAssistantTextMessage(text, isMock, mockReason) {
-    const msg = document.createElement('div');
-    msg.className = 'message assistant';
-    let mockHtml = '';
-    if (isMock) {
-      mockHtml = `<div class="message-mock">⚠️ Demo Resilience: ${escapeHtml(mockReason || 'Mock fallback')}</div>`;
-    }
-    msg.innerHTML = `
-      <div class="message-avatar">🤖</div>
-      <div class="message-content">
-        <p>${escapeHtml(text)}</p>
-        ${mockHtml}
-      </div>
-    `;
-    messageContainer.appendChild(msg);
-    scrollToBottom();
-  }
-
-  function appendErrorMessage(text) {
-    const msg = document.createElement('div');
-    msg.className = 'message assistant';
-    msg.innerHTML = `
-      <div class="message-avatar">⚠️</div>
-      <div class="message-content">
-        <div class="message-error">${escapeHtml(text)}</div>
-      </div>
-    `;
-    messageContainer.appendChild(msg);
-    scrollToBottom();
-  }
-
-  function appendLoadingMessage() {
-    const msg = document.createElement('div');
-    msg.className = 'message assistant';
-    msg.innerHTML = `
-      <div class="message-avatar">🤖</div>
-      <div class="message-content">
-        <p class="message-hint">Thinking securely...</p>
-      </div>
-    `;
-    messageContainer.appendChild(msg);
-    scrollToBottom();
-    return msg;
   }
 
   function scrollToBottom() {
-    messageContainer.scrollTop = messageContainer.scrollHeight;
+    const main = document.querySelector('.sidebar-main');
+    if (main) main.scrollTop = main.scrollHeight;
   }
 
   function escapeHtml(str) {
@@ -361,9 +396,76 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+      .replace(/'/g, '&#39;');
   }
 
-  // Initialize
+  function formatMarkdown(text) {
+    if (!text) return '';
+    // Format simple code blocks
+    let html = escapeHtml(text);
+    html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Split paragraphs
+    const paragraphs = html.split(/\n\n+/);
+    return paragraphs.map((p) => {
+      const trimmed = p.trim();
+      if (trimmed.startsWith('<pre>')) return trimmed;
+      // Dash-separated list on single line
+      if (trimmed.includes(' - ') && !trimmed.includes('\n')) {
+        const parts = trimmed.split(/\s+-\s+/);
+        const intro = parts[0];
+        const items = parts.slice(1).map(item => `<li>${item.trim()}</li>`).join('');
+        return (intro ? `<p>${intro}</p>` : '') + `<ul>${items}</ul>`;
+      }
+      // Multiline list items
+      if (trimmed.includes('\n•') || trimmed.includes('\n-') || trimmed.startsWith('•') || trimmed.startsWith('-')) {
+        const lines = trimmed.split('\n');
+        const listItems = lines.map((l) => {
+          const clean = l.replace(/^[•\-*]\s*/, '').trim();
+          return clean ? `<li>${clean}</li>` : '';
+        }).join('');
+        return `<ul>${listItems}</ul>`;
+      }
+      return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
+    }).join('');
+  }
+
+  // ── 6. Header Close ──
+  closeBtn.addEventListener('click', () => {
+    window.close();
+  });
+
+  // ── 7. Screenshot Toggle ──
+  function applyScreenshotNote(enabled) {
+    if (!screenshotNoteEl) return;
+    if (enabled) {
+      screenshotNoteEl.textContent = 'Sanitized locally · faces blurred · PII masked';
+    } else {
+      screenshotNoteEl.textContent = 'Screenshot excluded from AI context';
+    }
+  }
+
+  // Load initial toggle state
+  chrome.storage.local.get([SCREENSHOT_KEY], (result) => {
+    const enabled = result[SCREENSHOT_KEY] !== false; // default ON
+    if (screenshotToggleEl) {
+      screenshotToggleEl.checked = enabled;
+      screenshotToggleEl.setAttribute('aria-checked', String(enabled));
+    }
+    applyScreenshotNote(enabled);
+  });
+
+  // Persist changes
+  if (screenshotToggleEl) {
+    screenshotToggleEl.addEventListener('change', () => {
+      const enabled = screenshotToggleEl.checked;
+      screenshotToggleEl.setAttribute('aria-checked', String(enabled));
+      chrome.storage.local.set({ [SCREENSHOT_KEY]: enabled });
+      applyScreenshotNote(enabled);
+    });
+  }
+
+  // Init
   fetchLatestContext();
 });

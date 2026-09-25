@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Phase 2 Foundation Tests</title>
+  <script src="../extension/metrics.js"></script>
+  <script src="../extension/detectionGate.js"></script>
+  <script src="../extension/detectionFusion.js"></script>
+  <script src="../extension/detectors/ocrDetector.js"></script>
+  <script src="../extension/detectors/visionDetector.js"></script>
+</head>
+<body>
+  <h1>Phase 2 Foundation Tests</h1>
+  <div id="results"></div>
+  <script>
+    const results = document.getElementById('results');
+    function assert(name, condition) {
+      const item = document.createElement('p');
+      item.textContent = `${condition ? 'PASS' : 'FAIL'}: ${name}`;
+      item.style.color = condition ? 'green' : 'red';
+      results.appendChild(item);
+    }
+
+    const detections = [
+      { type: 'email', value: 'Alex.Sample@Test.org', source: 'dom', confidence: 0.9, rect: { x: 10, y: 10, width: 100, height: 20 } },
+      { type: 'email', value: 'alex.sample@test.org', source: 'regex', confidence: 0.95, rect: { x: 10, y: 10, width: 100, height: 20 } }
+    ];
+    const fused = window.SIH_DetectionFusion.fuse(detections);
+    assert('Fusion deduplicates same normalized value', fused.length === 1);
+    assert('Fusion keeps highest confidence', fused[0].confidence === 0.95);
+    assert('Fusion preserves provenance', fused[0].provenance.includes('dom') && fused[0].provenance.includes('regex'));
+
+    const cheapGate = window.SIH_DetectionGate.decide({ detections: [{ confidence: 0.95 }], imageCount: 2 });
+    assert('High-confidence cheap detection stops visual stages', !cheapGate.runOcr && !cheapGate.runCv);
+
+    const visualGate = window.SIH_DetectionGate.decide({ detections: [], imageCount: 1 });
+    assert('Unresolved visual page enables OCR', visualGate.runOcr);
+    const unavailableGate = window.SIH_DetectionGate.decide({ detections: [], imageCount: 1, ocrAvailable: false, cvAvailable: false });
+    assert('Unavailable visual runtimes are not marked active', !unavailableGate.runOcr && !unavailableGate.runCv);
+
+    const metrics = window.SIH_Metrics.createMetrics();
+    window.SIH_Metrics.measure(metrics, 'domMs', () => 1);
+    const snapshot = window.SIH_Metrics.finish(metrics);
+    assert('Metrics expose numeric timing without page data', typeof snapshot.domMs === 'number' && !JSON.stringify(snapshot).includes('Alex.Sample'));
+
+    const ocrDetections = window.SIH_OcrDetector.classifyText('OCR contact: ocr.user@example.com', { bbox: { x: 4, y: 4, width: 80, height: 20 } });
+    assert('OCR text classification emits Detection[] with a bounding box', ocrDetections.length === 1 && ocrDetections[0].source === 'ocr' && ocrDetections[0].bbox.width === 80);
+    window.SIH_VisionDetector.detect(null).then(result => {
+      assert('Vision reports unavailable without a runtime instead of faking results', result.available === false && result.detections.length === 0);
+    });
+  </script>
+</body>
+</html>

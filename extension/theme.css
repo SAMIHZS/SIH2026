@@ -1,0 +1,165 @@
+/* ═══════════════════════════════════════════════════════
+   theme.css — SIH26171 Privacy Assistant
+   Premium design tokens for light + dark themes
+   Accent: Refined Indigo-Violet
+═══════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700&display=swap');
+
+/* ══════════════════════════════
+   LIGHT THEME (default)
+══════════════════════════════ */
+:root,
+[data-theme="light"],
+.theme-light {
+  color-scheme: light;
+
+  /* Backgrounds */
+  --bg:             #F5F4F2;
+  --surface:        #FEFEFE;
+  --surface-subtle: #EDECEA;
+  --surface-hover:  #E5E3DF;
+  --surface-raised: #FFFFFF;
+
+  /* Borders */
+  --border:         #DDD9D4;
+  --border-subtle:  #E8E5E0;
+  --border-strong:  #C0BCB5;
+
+  /* Text */
+  --text-primary:   #1A1916;
+  --text-secondary: #6A6460;
+  --text-tertiary:  #9B948C;
+
+  /* Accent — Refined Indigo */
+  --accent:         #5B57E8;
+  --accent-hover:   #4946D0;
+  --accent-subtle:  #ECEAFD;
+  --accent-muted:   rgba(91,87,232,0.18);
+  --accent-fg:      #FFFFFF;
+
+  /* Status */
+  --success:        #2A9E68;
+  --success-subtle: #E4F5EC;
+  --success-fg:     #1D7A50;
+
+  --warning:        #C07A0A;
+  --warning-subtle: #FDF2DF;
+
+  --danger:         #C83939;
+  --danger-subtle:  #FDECEC;
+  --danger-fg:      #A02E2E;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Cascadia Code', 'Geist Mono', Consolas, 'Courier New', monospace;
+
+  /* Radii */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(26,25,22,0.08), 0 1px 2px rgba(26,25,22,0.05);
+  --shadow-md: 0 4px 12px rgba(26,25,22,0.10), 0 2px 5px rgba(26,25,22,0.06);
+  --shadow-lg: 0 8px 28px rgba(26,25,22,0.12), 0 4px 12px rgba(26,25,22,0.07);
+
+  --accent-glow: 0 0 0 3px rgba(91,87,232,0.16);
+}
+
+/* ══════════════════════════════
+   DARK THEME
+══════════════════════════════ */
+[data-theme="dark"],
+.theme-dark {
+  color-scheme: dark;
+
+  /* Backgrounds — warm charcoal, not pure black */
+  --bg:             #16151C;
+  --surface:        #1D1C25;
+  --surface-subtle: #232130;
+  --surface-hover:  #2B2A38;
+  --surface-raised: #242330;
+
+  /* Borders */
+  --border:         #302E3E;
+  --border-subtle:  #28263A;
+  --border-strong:  #42405A;
+
+  /* Text */
+  --text-primary:   #EEECf8;
+  --text-secondary: #A09BB8;
+  --text-tertiary:  #6B677E;
+
+  /* Accent */
+  --accent:         #8280F2;
+  --accent-hover:   #9896F8;
+  --accent-subtle:  rgba(130,128,242,0.13);
+  --accent-muted:   rgba(130,128,242,0.26);
+  --accent-fg:      #FFFFFF;
+
+  /* Status */
+  --success:        #38C98A;
+  --success-subtle: rgba(56,201,138,0.13);
+  --success-fg:     #28A870;
+
+  --warning:        #E8A030;
+  --warning-subtle: rgba(232,160,48,0.13);
+
+  --danger:         #F06A6A;
+  --danger-subtle:  rgba(240,106,106,0.13);
+  --danger-fg:      #D45050;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.32), 0 1px 2px rgba(0,0,0,0.22);
+  --shadow-md: 0 4px 14px rgba(0,0,0,0.42), 0 2px 6px rgba(0,0,0,0.26);
+  --shadow-lg: 0 8px 30px rgba(0,0,0,0.55), 0 4px 14px rgba(0,0,0,0.32);
+
+  --accent-glow: 0 0 0 3px rgba(130,128,242,0.24);
+}
+
+/* ══════════════════════════════
+   GLOBAL RESET & BASE
+══════════════════════════════ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* Base interactive */
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text-primary);
+}
+
+button { cursor: pointer; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

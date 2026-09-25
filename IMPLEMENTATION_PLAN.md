@@ -98,3 +98,17 @@ tests/
 - ai_provider.py boundary allows provider swaps
 - Sanitizer is source-agnostic
 - Action schema has planned Phase 2 extensions
+
+## Phase 2 Implementation Status
+
+The Phase 2 migration has started without removing the Phase 1 backend. Implemented browser-side foundations include:
+
+- deterministic DOM/Regex-to-visual gating
+- detection fusion with provenance and confidence
+- PII-free performance metrics
+- local screenshot masking
+- OCR classification and Vision lazy-runtime boundaries
+- privileged Model Manager with Groq, OpenRouter, and honest LocalProvider adapters
+- provider/model configuration UI with protected credential handling
+
+The service worker uses the Model Manager when a provider is configured and retains FastAPI as a temporary fallback. OCR/CV runtime assets, live provider verification, browser-only end-to-end validation, and backend removal remain pending. See `PHASE2.md` for the migration criteria.

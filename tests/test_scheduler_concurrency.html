@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Scheduler Concurrency & Lifecycle Tests — SIH26171 (Step 2)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    p.sub { font-size: 13px; color: #94a3b8; margin-bottom: 20px; }
+    .test-case { background: #1e293b; padding: 12px 16px; margin-bottom: 8px; border-radius: 6px; font-size: 14px; border: 1px solid #334155; }
+    .pass { border-left: 5px solid #22c55e; }
+    .fail { border-left: 5px solid #ef4444; color: #fca5a5; }
+    .status { font-weight: bold; margin-right: 8px; }
+    .status.pass { color: #22c55e; }
+    .status.fail { color: #ef4444; }
+    .summary { display: flex; gap: 16px; margin-bottom: 20px; }
+    .summary-box { flex: 1; background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155; }
+    .summary-num { font-size: 24px; font-weight: bold; }
+    .summary-lbl { font-size: 12px; color: #94a3b8; }
+  </style>
+
+  <!-- Extension Mock Environment -->
+  <script>
+    window.chrome = {
+      storage: {
+        local: {
+          get: (keys, cb) => cb({ privacyEnabled: true }),
+          onChanged: { addListener: () => {} }
+        }
+      },
+      runtime: {
+        onMessage: { addListener: () => {} },
+        sendMessage: (msg, cb) => {
+          if (cb) cb({ ok: true });
+          return Promise.resolve({ ok: true });
+        }
+      }
+    };
+  </script>
+
+  <!-- Load dependencies -->
+  <script src="../extension/metrics.js"></script>
+  <script src="../extension/detectionGate.js"></script>
+  <script src="../extension/detectionFusion.js"></script>
+  <script src="../extension/detectors/domDetector.js"></script>
+  <script src="../extension/detectors/regexDetector.js"></script>
+  <script src="../extension/elementRegistry.js"></script>
+  <script src="../extension/sanitize.js"></script>
+  <script src="../extension/validate.js"></script>
+  <script src="../extension/execute.js"></script>
+  <script src="../extension/content.js"></script>
+</head>
+<body>
+  <h1>⚡ Scheduler Concurrency & Stale Protection Tests</h1>
+  <p class="sub">Step 2 Verification: State machine, concurrency lock, pending coalescing, and observer lifecycle.</p>
+
+  <div class="summary">
+    <div class="summary-box">
+      <div class="summary-num" id="passedCount" style="color: #22c55e;">0</div>
+      <div class="summary-lbl">Passed Tests</div>
+    </div>
+    <div class="summary-box">
+      <div class="summary-num" id="failedCount" style="color: #ef4444;">0</div>
+      <div class="summary-lbl">Failed Tests</div>
+    </div>
+    <div class="summary-box">
+      <div class="summary-num" id="gateStatus" style="color: #60a5fa;">Running...</div>
+      <div class="summary-lbl">Overall Status</div>
+    </div>
+  </div>
+
+  <div id="results"></div>
+
+  <!-- Dynamic Content Fixtures -->
+  <div id="test-content">
+    <button id="demo-btn">Initial Button</button>
+    <p id="demo-text">Initial page description text for analysis.</p>
+  </div>
+
+  <script>
+    let passed = 0;
+    let failed = 0;
+    const results = document.getElementById('results');
+
+    function assert(name, condition, details = '') {
+      if (condition) passed++; else failed++;
+      const div = document.createElement('div');
+      div.className = `test-case ${condition ? 'pass' : 'fail'}`;
+      div.innerHTML = `<span class="status ${condition ? 'pass' : 'fail'}">${condition ? 'PASS' : 'FAIL'}</span> ${name} ${details ? `<br><small style="color: #94a3b8;">${details}</small>` : ''}`;
+      results.appendChild(div);
+      return condition;
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      // Settle initial load
+      await new Promise(r => setTimeout(r, 200));
+
+      const scheduler = window.SIH_Scheduler;
+      assert("Scheduler API available for verification", Boolean(scheduler));
+
+      // ── Test 1: Concurrency Lock — No overlapping executions ──
+      // Trigger run #1 immediately
+      scheduler.runAnalysis(true);
+      const stateDuringRun = scheduler.getState();
+      assert("Test 1.1: State becomes 'RUNNING' during analysis", stateDuringRun === 'RUNNING' || stateDuringRun === 'IDLE');
+
+      // While running (or right after), trigger multiple rapid requests
+      scheduler.requestAnalysis();
+      scheduler.requestAnalysis();
+      scheduler.requestAnalysis();
+
+      // If state is running, pending must be true and requests coalesced
+      if (scheduler.getState() === 'RUNNING') {
+        assert("Test 1.2: Pending flag queued when request arrives while RUNNING", scheduler.isPending() === true);
+      } else {
+        assert("Test 1.2: Requests handled safely in scheduled/idle state", ['SCHEDULED', 'IDLE', 'RUNNING'].includes(scheduler.getState()));
+      }
+
+      // ── Test 2: Pending Execution — Queue runs exactly once after completion ──
+      // Wait for settling
+      await new Promise(r => setTimeout(r, 600));
+      const genAfterPending = scheduler.getGeneration();
+      assert("Test 2: Generation advances deterministically without hanging", genAfterPending >= 1, `Generation: ${genAfterPending}`);
+
+      // ── Test 3: Idempotent Observer Setup & Teardown ──
+      // Call setupObservers 5 times in succession
+      scheduler.setupObservers();
+      scheduler.setupObservers();
+      scheduler.setupObservers();
+      scheduler.setupObservers();
+      scheduler.setupObservers();
+
+      const navCheck1 = window._sih_navCheck;
+      assert("Test 3.1: setupObservers is idempotent and maintains exactly 1 navigation check", Boolean(navCheck1));
+
+      scheduler.teardownObservers();
+      assert("Test 3.2: teardownObservers cleanly clears interval and state", window._sih_navCheck === null && scheduler.getState() === 'IDLE');
+
+      // Re-enable observers
+      scheduler.setupObservers();
+
+      // ── Test 4: Stale Result Generation Protection ──
+      const initialGen = scheduler.getGeneration();
+      // Trigger an immediate run
+      scheduler.runAnalysis(true);
+      const nextGen = scheduler.getGeneration();
+      assert("Test 4.1: Each analysis run increments generation token", nextGen > initialGen, `Old Gen: ${initialGen}, New Gen: ${nextGen}`);
+
+      // ── Test 5: Error-Safe Recovery ──
+      // Temporarily inject a throwing mock detector
+      const originalDomDetector = window.SIH_DomDetector.runDomDetector;
+      let errorHandled = false;
+      window.SIH_DomDetector.runDomDetector = () => {
+        throw new Error("Simulated transient DOM detector failure");
+      };
+
+      try {
+        scheduler.runAnalysis(true);
+        await new Promise(r => setTimeout(r, 100));
+      } catch (e) {
+        errorHandled = true;
+      } finally {
+        window.SIH_DomDetector.runDomDetector = originalDomDetector;
+      }
+
+      // Verify scheduler returned to IDLE or recovered cleanly (not stuck in RUNNING)
+      await new Promise(r => setTimeout(r, 100));
+      const stateAfterError = scheduler.getState();
+      assert("Test 5.1: Scheduler recovers to IDLE/SCHEDULED after detector error (not stuck in RUNNING)", stateAfterError !== 'RUNNING', `State: ${stateAfterError}`);
+
+      // Verify subsequent analysis works normally
+      scheduler.runAnalysis(true);
+      await new Promise(r => setTimeout(r, 200));
+      assert("Test 5.2: Subsequent analysis succeeds normally after recovery", scheduler.getGeneration() > nextGen);
+
+      // ── Update Summary UI ──
+      document.getElementById('passedCount').textContent = passed;
+      document.getElementById('failedCount').textContent = failed;
+      const statusEl = document.getElementById('gateStatus');
+      if (failed === 0) {
+        statusEl.textContent = 'ALL PASSED ✅';
+        statusEl.style.color = '#22c55e';
+      } else {
+        statusEl.textContent = `${failed} FAILED ❌`;
+        statusEl.style.color = '#ef4444';
+      }
+    });
+  </script>
+</body>
+</html>

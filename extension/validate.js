@@ -32,12 +32,20 @@ const PROTECTED_CLICK_SELECTORS = [
  * Returns ValidationResult: { allowed: boolean, reason?: string }
  * 
  * @param {Action} action - The action to validate
+ * @param {number} [expectedGeneration] - Active page context generation
  * @returns {ValidationResult}
  */
-function validateAction(action) {
+function validateAction(action, expectedGeneration) {
   // 1. Basic structure check
   if (!action || typeof action !== 'object') {
     return { allowed: false, reason: 'Action is not a valid object' };
+  }
+
+  // 1a. Generation check if action carries a generation
+  if (typeof action.generation === 'number' && typeof expectedGeneration === 'number') {
+    if (action.generation !== expectedGeneration) {
+      return { allowed: false, reason: `Action rejected: action generation (${action.generation}) does not match current page generation (${expectedGeneration})` };
+    }
   }
   
   // 2. Action type allowlist
@@ -51,21 +59,19 @@ function validateAction(action) {
       return { allowed: false, reason: 'Action requires a target selector' };
     }
     
-    // 3a. Validate selector is safe (no JavaScript, no eval patterns)
+    // 3a. Validate target is safe (no JavaScript, no eval patterns)
     if (containsDangerousPattern(action.target)) {
       return { allowed: false, reason: 'Target selector contains dangerous pattern' };
     }
     
-    // 3b. Target must exist in DOM
-    let targetElement;
-    try {
-      targetElement = document.querySelector(action.target);
-    } catch (e) {
-      return { allowed: false, reason: `Invalid CSS selector: ${action.target}` };
+    // 3b. Target must be a valid registered element in the DOM (isolated to current generation)
+    if (typeof window.SIH_ElementRegistry === 'undefined' || !window.SIH_ElementRegistry.resolve) {
+      return { allowed: false, reason: 'Element registry unavailable' };
     }
     
+    const targetElement = window.SIH_ElementRegistry.resolve(action.target, expectedGeneration);
     if (!targetElement) {
-      return { allowed: false, reason: `Target element not found: ${action.target}` };
+      return { allowed: false, reason: `Target element not found or belongs to a different page generation: ${action.target}` };
     }
     
     // 3c. Target must be visible
@@ -106,13 +112,18 @@ function validateAction(action) {
   if (action.action === 'scroll') {
     // Scroll can have a target (scroll element into view) or no target (scroll page)
     if (action.target) {
-      try {
-        const el = document.querySelector(action.target);
-        if (!el) {
-          return { allowed: false, reason: `Scroll target not found: ${action.target}` };
-        }
-      } catch (e) {
-        return { allowed: false, reason: `Invalid scroll target selector: ${action.target}` };
+      if (typeof action.target !== 'string') {
+        return { allowed: false, reason: 'Scroll target must be a string' };
+      }
+      if (containsDangerousPattern(action.target)) {
+        return { allowed: false, reason: 'Target selector contains dangerous pattern' };
+      }
+      if (typeof window.SIH_ElementRegistry === 'undefined' || !window.SIH_ElementRegistry.resolve) {
+        return { allowed: false, reason: 'Element registry unavailable' };
+      }
+      const el = window.SIH_ElementRegistry.resolve(action.target, expectedGeneration);
+      if (!el) {
+        return { allowed: false, reason: `Scroll target not found or belongs to a different page generation: ${action.target}` };
       }
     }
   }

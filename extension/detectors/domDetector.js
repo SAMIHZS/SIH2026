@@ -91,18 +91,27 @@ function getElementId(el, index) {
 }
 
 /**
- * Get bounding rect for an element, returns null if not visible.
+ * Get bounding rect for an element in VIEWPORT-RELATIVE CSS pixel coordinates.
+ *
+ * IMPORTANT: Returns viewport-relative coords (no scrollX/Y addition) because:
+ *   - chrome.tabs.captureVisibleTab captures only the VIEWPORT (not the full
+ *     scrolled document).
+ *   - getBoundingClientRect() already returns viewport-relative coords.
+ *   - Adding scrollX/Y would shift the mask off-screen for scrolled pages.
+ *
+ * Returns null if the element has zero size.
  */
 function getElementRect(el) {
   const rect = el.getBoundingClientRect();
   if (rect.width === 0 && rect.height === 0) return null;
   return {
-    x: rect.x + window.scrollX,
-    y: rect.y + window.scrollY,
+    x: rect.x,
+    y: rect.y,
     width: rect.width,
     height: rect.height
   };
 }
+
 
 /**
  * Run DOM detection on the current page.

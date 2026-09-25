@@ -57,6 +57,7 @@
   </style>
   <script src="../extension/detectors/domDetector.js"></script>
   <script src="../extension/detectors/regexDetector.js"></script>
+  <script src="../extension/elementRegistry.js"></script>
   <script src="../extension/sanitize.js"></script>
   <script src="../extension/validate.js"></script>
   <script src="../extension/execute.js"></script>
@@ -149,7 +150,8 @@
       recordTest(6, "Target Integrity", "Actions specifying nonexistent or invalid selectors are safely rejected.", !invalidValidation.allowed, `Validation: ${invalidValidation.reason}`);
 
       // Gate Check 7: Sensitive targets cannot be acted upon improperly
-      const pwdAction = { action: 'type', target: '#sec-pwd', value: 'stolen' };
+      const pwdTargetId = window.SIH_ElementRegistry.register(document.getElementById('sec-pwd'));
+      const pwdAction = { action: 'type', target: pwdTargetId, value: 'stolen' };
       const pwdValidation = window.SIH_Validator.validateAction(pwdAction);
       recordTest(7, "Sensitive Target Safeguard", "Interacting directly with password/credential controls is forbidden.", !pwdValidation.allowed, `Protection: ${pwdValidation.reason}`);
 

@@ -13,6 +13,7 @@
     .status.pass { color: #22c55e; }
     .status.fail { color: #ef4444; }
   </style>
+  <script src="../extension/elementRegistry.js"></script>
   <script src="../extension/validate.js"></script>
 </head>
 <body>
@@ -36,47 +37,63 @@
     }
 
     window.addEventListener('DOMContentLoaded', () => {
-      // Test 1: Valid click action allowed
+      // Register test targets in ElementRegistry
+      const btnEl = document.getElementById('valid-btn');
+      const inputEl = document.getElementById('valid-input');
+      const pwdEl = document.getElementById('protected-pwd');
+
+      const btnTargetId = window.SIH_ElementRegistry.register(btnEl);
+      const inputTargetId = window.SIH_ElementRegistry.register(inputEl);
+      const pwdTargetId = window.SIH_ElementRegistry.register(pwdEl);
+
+      // Test 1: Valid click action allowed via registered target ID
       const clickRes = window.SIH_Validator.validateAction({
+        action: 'click',
+        target: btnTargetId
+      });
+      assert("Allowlist: Valid click action allowed for registered target", clickRes.allowed, clickRes.reason);
+
+      // Test 2: Valid type action allowed via registered target ID
+      const typeRes = window.SIH_Validator.validateAction({
+        action: 'type',
+        target: inputTargetId,
+        value: 'Test Query'
+      });
+      assert("Allowlist: Valid type action allowed for registered target", typeRes.allowed, typeRes.reason);
+
+      // Test 3: Raw CSS selector '#valid-btn' rejected (no selector bypass)
+      const selectorRes = window.SIH_Validator.validateAction({
         action: 'click',
         target: '#valid-btn'
       });
-      assert("Allowlist: Valid click action allowed", clickRes.allowed, clickRes.reason);
+      assert("Security: Raw CSS selector '#valid-btn' rejected", !selectorRes.allowed, `Reason: ${selectorRes.reason}`);
 
-      // Test 2: Valid type action allowed
-      const typeRes = window.SIH_Validator.validateAction({
-        action: 'type',
-        target: '#valid-input',
-        value: 'Test Query'
-      });
-      assert("Allowlist: Valid type action allowed", typeRes.allowed, typeRes.reason);
-
-      // Test 3: Disallowed action 'eval' rejected
+      // Test 4: Disallowed action 'eval' rejected
       const evalRes = window.SIH_Validator.validateAction({
         action: 'eval',
-        target: '#valid-btn',
+        target: btnTargetId,
         value: 'alert(1)'
       });
       assert("Security: 'eval' action rejected", !evalRes.allowed, `Reason: ${evalRes.reason}`);
 
-      // Test 4: Disallowed action 'script' rejected
+      // Test 5: Disallowed action 'script' rejected
       const scriptRes = window.SIH_Validator.validateAction({
         action: 'script',
-        target: '#valid-btn'
+        target: btnTargetId
       });
       assert("Security: 'script' action rejected", !scriptRes.allowed, `Reason: ${scriptRes.reason}`);
 
-      // Test 5: Non-existent target rejected
+      // Test 6: Non-existent registered target rejected
       const ghostRes = window.SIH_Validator.validateAction({
         action: 'click',
-        target: '#non-existent-button-xyz'
+        target: 'el_99999'
       });
-      assert("Integrity: Non-existent target selector rejected", !ghostRes.allowed, `Reason: ${ghostRes.reason}`);
+      assert("Integrity: Non-existent target ID rejected", !ghostRes.allowed, `Reason: ${ghostRes.reason}`);
 
-      // Test 6: Sensitive/protected target (password input) rejected
+      // Test 7: Sensitive/protected target (password input) rejected even when registered
       const pwdRes = window.SIH_Validator.validateAction({
         action: 'type',
-        target: '#protected-pwd',
+        target: pwdTargetId,
         value: 'NewPassword!'
       });
       assert("Protection: Sensitive password field interaction rejected", !pwdRes.allowed, `Reason: ${pwdRes.reason}`);

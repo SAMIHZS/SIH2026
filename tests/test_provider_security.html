@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Phase 2 Provider Security Tests</title>
+  <script src="../extension/providers/types.js"></script>
+  <script src="../extension/providers/groqProvider.js"></script>
+  <script src="../extension/providers/openRouterProvider.js"></script>
+  <script src="../extension/providers/geminiProvider.js"></script>
+  <script src="../extension/providers/localProvider.js"></script>
+  <script src="../extension/modelManager.js"></script>
+</head>
+<body>
+  <h1>Phase 2 Provider Security Tests</h1>
+  <div id="results"></div>
+  <script>
+    const results = document.getElementById('results');
+    const requests = [];
+    function report(name, passed, detail) {
+      const item = document.createElement('p');
+      item.textContent = `${passed ? 'PASS' : 'FAIL'}: ${name}${detail ? ` (${detail})` : ''}`;
+      item.style.color = passed ? 'green' : 'red';
+      results.appendChild(item);
+    }
+
+    const store = {};
+    window.chrome = {
+      storage: {
+        local: {
+          get(keys, callback) { callback(store[keys[0]] ? { [keys[0]]: store[keys[0]] } : {}); },
+          set(values, callback) { Object.assign(store, values); callback(); }
+        }
+      }
+    };
+    window.fetch = async (url, options) => {
+      requests.push({ url, body: JSON.parse(options.body) });
+      if (url.includes('/models')) return { ok: true, json: async () => ({ data: [{ id: 'test-model' }] }) };
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '{"type":"text","message":"safe"}' } }] }) };
+    };
+
+    (async () => {
+      const manager = new window.SIH_ModelManager.ModelManager();
+      const context = { page: { url: 'https://example.test', title: 'Demo' }, elements: [], text: 'Contact [EMAIL_1]', screenshot: 'data:image/png;base64,REDACTED' };
+      await manager.saveConfig({ selectedProvider: 'groq', selectedModel: 'test-model', providers: { groq: { configured: true, apiKey: 'groq-test-key', models: [] } } });
+      await manager.chat(context, 'Search for jane@example.com');
+      await manager.saveConfig({ selectedProvider: 'openrouter', selectedModel: 'test-model', providers: { openrouter: { configured: true, apiKey: 'openrouter-test-key', models: [] } } });
+      await manager.chat(context, 'Call 555-987-6543');
+      const payloads = JSON.stringify(requests);
+      report('Groq and OpenRouter requests normalize successfully', requests.length === 2);
+      report('Raw email is absent from provider payloads', !payloads.includes('jane@example.com'));
+      report('Raw phone is absent from provider payloads', !payloads.includes('555-987-6543'));
+      report('Sanitized token remains in provider payload', payloads.includes('[EMAIL_1]'));
+      report('Provider keys are not included in request bodies', !payloads.includes('groq-test-key') && !payloads.includes('openrouter-test-key'));
+      report('Stored key is excluded from public config', !(await manager.getPublicConfig()).providers.groq.apiKey);
+    })().catch(error => report('Provider security flow completes', false, error.message));
+  </script>
+</body>
+</html>

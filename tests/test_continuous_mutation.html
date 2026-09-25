@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Continuous Mutation & Bounded Debounce Test — SIH26171 (Step 2)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    p.sub { font-size: 13px; color: #94a3b8; margin-bottom: 20px; }
+    .test-case { background: #1e293b; padding: 12px 16px; margin-bottom: 8px; border-radius: 6px; font-size: 14px; border: 1px solid #334155; }
+    .pass { border-left: 5px solid #22c55e; }
+    .fail { border-left: 5px solid #ef4444; color: #fca5a5; }
+    .status { font-weight: bold; margin-right: 8px; }
+    .status.pass { color: #22c55e; }
+    .status.fail { color: #ef4444; }
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: #1e293b; padding: 14px; border-radius: 6px; border: 1px solid #334155; }
+    .stat-val { font-size: 20px; font-weight: bold; color: #38bdf8; }
+    .stat-lbl { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+    .summary { display: flex; gap: 16px; margin-bottom: 20px; }
+    .summary-box { flex: 1; background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155; }
+    .summary-num { font-size: 24px; font-weight: bold; }
+    .summary-lbl { font-size: 12px; color: #94a3b8; }
+  </style>
+
+  <!-- Mock Extension Chrome Messaging -->
+  <script>
+    window.contextReadyCount = 0;
+    window.lastContextPayload = null;
+
+    window.chrome = {
+      storage: {
+        local: {
+          get: (keys, cb) => cb({ privacyEnabled: true }),
+          onChanged: { addListener: () => {} }
+        }
+      },
+      runtime: {
+        onMessage: { addListener: () => {} },
+        sendMessage: (msg, cb) => {
+          if (msg.type === 'CONTEXT_READY') {
+            window.contextReadyCount++;
+            window.lastContextPayload = msg;
+          }
+          if (cb) cb({ ok: true });
+          return Promise.resolve({ ok: true });
+        }
+      }
+    };
+  </script>
+
+  <!-- Load dependencies -->
+  <script src="../extension/metrics.js"></script>
+  <script src="../extension/detectionGate.js"></script>
+  <script src="../extension/detectionFusion.js"></script>
+  <script src="../extension/detectors/domDetector.js"></script>
+  <script src="../extension/detectors/regexDetector.js"></script>
+  <script src="../extension/elementRegistry.js"></script>
+  <script src="../extension/sanitize.js"></script>
+  <script src="../extension/validate.js"></script>
+  <script src="../extension/execute.js"></script>
+  <script src="../extension/content.js"></script>
+</head>
+<body>
+  <h1>🔄 Continuous Mutation & Bounded Debounce Test</h1>
+  <p class="sub">Step 2 Verification: Continuous DOM mutations (every 50ms) must not starve analysis; bounded deadline must force timely completion.</p>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-val" id="mutationCountDisplay">0</div>
+      <div class="stat-lbl">DOM Mutations Injected</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="analysisCountDisplay">0</div>
+      <div class="stat-lbl">Analysis Generations Executed</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="timeElapsedDisplay">0ms</div>
+      <div class="stat-lbl">Time to Bounded Completion</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="coalesceRatioDisplay">0x</div>
+      <div class="stat-lbl">Coalescing Efficiency</div>
+    </div>
+  </div>
+
+  <div class="summary">
+    <div class="summary-box">
+      <div class="summary-num" id="passedCount" style="color: #22c55e;">0</div>
+      <div class="summary-lbl">Passed Tests</div>
+    </div>
+    <div class="summary-box">
+      <div class="summary-num" id="failedCount" style="color: #ef4444;">0</div>
+      <div class="summary-lbl">Failed Tests</div>
+    </div>
+    <div class="summary-box">
+      <div class="summary-num" id="gateStatus" style="color: #60a5fa;">Running Continuous Test...</div>
+      <div class="summary-lbl">Overall Status</div>
+    </div>
+  </div>
+
+  <div id="results"></div>
+
+  <!-- Dynamic mutating container simulating YouTube badges / Amazon dynamic price tickers -->
+  <div id="churn-container" style="padding: 14px; background: #131c2e; border-radius: 6px; margin-bottom: 16px;">
+    <button id="persistent-btn">Persistent Action Target</button>
+    <div id="live-badge" style="display: inline-block; margin-left: 12px; color: #38bdf8;">Ticker: Initial</div>
+    <div id="churn-subnodes"></div>
+  </div>
+
+  <script>
+    let passed = 0;
+    let failed = 0;
+    const results = document.getElementById('results');
+
+    function assert(name, condition, details = '') {
+      if (condition) passed++; else failed++;
+      const div = document.createElement('div');
+      div.className = `test-case ${condition ? 'pass' : 'fail'}`;
+      div.innerHTML = `<span class="status ${condition ? 'pass' : 'fail'}">${condition ? 'PASS' : 'FAIL'}</span> ${name} ${details ? `<br><small style="color: #94a3b8;">${details}</small>` : ''}`;
+      results.appendChild(div);
+      return condition;
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      // Allow initial load to settle
+      await new Promise(r => setTimeout(r, 200));
+
+      const initialGen = window.SIH_Scheduler.getGeneration();
+      const initialReadyCount = window.contextReadyCount;
+      const startTime = performance.now();
+
+      const badge = document.getElementById('live-badge');
+      const churnSubnodes = document.getElementById('churn-subnodes');
+
+      let mutationCounter = 0;
+      const mutationDisplay = document.getElementById('mutationCountDisplay');
+
+      // Start rapid mutation loop (mutating every 50ms for 3.5 seconds)
+      // This is 70 mutations in total.
+      // Under old unbounded debounce (1500ms), this would never finish during the test!
+      // Under bounded debounce (MAX_WAIT_MS = 3000ms), analysis MUST run around 3000ms.
+      const mutationInterval = setInterval(() => {
+        mutationCounter++;
+        mutationDisplay.textContent = String(mutationCounter);
+        badge.textContent = `Ticker: ${mutationCounter} (${Date.now()})`;
+
+        // Also add and remove child nodes periodically to simulate dynamic feeds
+        const item = document.createElement('span');
+        item.textContent = ` [Item ${mutationCounter}] `;
+        churnSubnodes.appendChild(item);
+        if (churnSubnodes.children.length > 5) {
+          churnSubnodes.removeChild(churnSubnodes.firstChild);
+        }
+      }, 50);
+
+      // Wait 3.5 seconds while mutations are constantly occurring
+      await new Promise(r => setTimeout(r, 3600));
+
+      clearInterval(mutationInterval);
+
+      const elapsed = Math.round(performance.now() - startTime);
+      document.getElementById('timeElapsedDisplay').textContent = `${elapsed}ms`;
+
+      // Allow a brief moment for post-run pending settle
+      await new Promise(r => setTimeout(r, 300));
+
+      const finalGen = window.SIH_Scheduler.getGeneration();
+      const completedRuns = finalGen - initialGen;
+      document.getElementById('analysisCountDisplay').textContent = String(completedRuns);
+
+      const coalesceRatio = mutationCounter > 0 && completedRuns > 0
+        ? (mutationCounter / completedRuns).toFixed(1)
+        : '0';
+      document.getElementById('coalesceRatioDisplay').textContent = `${coalesceRatio}x`;
+
+      // ── Test Assertions ──
+
+      // 1. Continuous mutations occurred
+      assert("Test 1: High frequency mutations were generated", mutationCounter >= 50, `Total mutations: ${mutationCounter}`);
+
+      // 2. Bounded debounce prevented starvation
+      assert("Test 2: Bounded debounce executed analysis despite continuous mutations", completedRuns >= 1, `Analyses run: ${completedRuns}`);
+
+      // 3. Requests were properly coalesced (did NOT run 60+ analyses!)
+      assert("Test 3: Analyses were heavily coalesced (prevented CPU explosion)", completedRuns <= 4, `Coalesced from ${mutationCounter} mutations into ${completedRuns} runs`);
+
+      // 4. CONTEXT_READY was emitted
+      assert("Test 4: CONTEXT_READY was broadcast to service worker/sidebar", window.contextReadyCount > initialReadyCount);
+
+      // 5. Context contains the persistent actionable element
+      const elements = window.lastContextPayload?.sanitizedContext?.elements || [];
+      const hasBtn = elements.some(e => e.tag === 'button' && e.text === 'Persistent Action Target');
+      assert("Test 5: Extracted SanitizedContext correctly captured active elements", hasBtn, `Elements count: ${elements.length}`);
+
+      // ── Update Summary UI ──
+      document.getElementById('passedCount').textContent = passed;
+      document.getElementById('failedCount').textContent = failed;
+      const statusEl = document.getElementById('gateStatus');
+      if (failed === 0) {
+        statusEl.textContent = 'ALL PASSED ✅';
+        statusEl.style.color = '#22c55e';
+      } else {
+        statusEl.textContent = `${failed} FAILED ❌`;
+        statusEl.style.color = '#ef4444';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -14,6 +14,7 @@
     .status.fail { color: #ef4444; }
     pre { background: #0a0f1d; padding: 8px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin-top: 6px; }
   </style>
+  <script src="../extension/elementRegistry.js"></script>
   <script src="../extension/sanitize.js"></script>
 </head>
 <body>
@@ -79,6 +80,12 @@
       const validSchema = sanitizedContext.page && typeof sanitizedContext.page.title === 'string' &&
                           Array.isArray(sanitizedContext.elements) && typeof sanitizedContext.text === 'string';
       assert("Contract: Conforms to frozen SanitizedContext schema", validSchema);
+
+      const summary = window.SIH_Sanitizer.SIH_SanitizerState.getDetectionSummary();
+      const summarySafe = JSON.stringify(summary).includes('[EMAIL_1]') &&
+                          !JSON.stringify(summary).includes('jane@secure.org') &&
+                          summary[0].type === 'email';
+      assert("Privacy boundary: Detection summary exposes tokens and metadata only", summarySafe);
     });
   </script>
 </body>

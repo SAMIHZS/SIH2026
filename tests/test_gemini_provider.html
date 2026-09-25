@@ -1,0 +1,433 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Gemini Provider Tests — SIH26171</title>
+  <style>
+    body { font-family: monospace; margin: 32px; background: #0f0f12; color: #e0e0e8; }
+    h1   { color: #93c5fd; margin-bottom: 4px; }
+    p.sub{ color: #64748b; margin-top: 0; font-size: 0.85rem; }
+    .pass{ color: #4ade80; }
+    .fail{ color: #f87171; font-weight: bold; }
+    .info{ color: #94a3b8; }
+    hr   { border-color: #1e1e2e; }
+    #summary { margin-top: 24px; font-size: 1.1rem; }
+  </style>
+</head>
+<body>
+<h1>Gemini Provider Tests</h1>
+<p class="sub">SIH26171 Phase 2 — mocked transport, no real API key required</p>
+<hr>
+<pre id="log"></pre>
+<div id="summary"></div>
+
+<script src="../extension/providers/types.js"></script>
+<script src="../extension/providers/geminiProvider.js"></script>
+<script>
+'use strict';
+
+// ── Test harness ──────────────────────────────────────────────────────────────
+const log = document.getElementById('log');
+const summaryEl = document.getElementById('summary');
+let passed = 0, failed = 0;
+
+function out(msg, cls) {
+  const span = document.createElement('span');
+  span.className = cls || '';
+  span.textContent = msg + '\n';
+  log.appendChild(span);
+}
+
+function pass(label) { passed++; out('  PASS  ' + label, 'pass'); }
+function fail(label, detail) {
+  failed++;
+  out('  FAIL  ' + label + (detail ? '  (' + detail + ')' : ''), 'fail');
+}
+function section(title) { out('\n[' + title + ']', 'info'); }
+
+async function runAll() {
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  /** Build a minimal provider and types instance from global scope. */
+  const provider = new self.SIH_GeminiProvider.GeminiProvider();
+  const { normalizeResponse } = self.SIH_ProviderTypes;
+
+  /**
+   * Fake fetch factory — replaces globalThis.fetch for each test, then restores.
+   * Returns the given body with the given status.
+   */
+  function mockFetch(status, body) {
+    return async () => ({
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => body
+    });
+  }
+
+  const origFetch = globalThis.fetch;
+
+  function withMockFetch(mockFn, testFn) {
+    globalThis.fetch = mockFn;
+    return Promise.resolve(testFn()).finally(() => { globalThis.fetch = origFetch; });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('1. Provider identity');
+
+  try {
+    if (provider.id === 'gemini') pass('provider.id === "gemini"');
+    else fail('provider.id', `got ${provider.id}`);
+  } catch (e) { fail('provider identity threw', e.message); }
+
+  try {
+    if (provider.name === 'Google Gemini') pass('provider.name === "Google Gemini"');
+    else fail('provider.name', `got ${provider.name}`);
+  } catch (e) { fail('provider name threw', e.message); }
+
+  try {
+    if (provider.defaultModel === '') pass('defaultModel is empty (no hard-coded model)');
+    else fail('defaultModel should be empty', `got "${provider.defaultModel}"`);
+  } catch (e) { fail('defaultModel threw', e.message); }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('2. normalizeModelId');
+
+  const normCases = [
+    { input: 'gemini-1.5-flash',        expected: 'models/gemini-1.5-flash'      },
+    { input: 'models/gemini-1.5-pro',   expected: 'models/gemini-1.5-pro'        },
+    { input: 'models/gemini-2.0-flash', expected: 'models/gemini-2.0-flash'      },
+    { input: '',                         expected: ''                              },
+    { input: '  gemini-pro  ',           expected: 'models/gemini-pro'            },
+  ];
+
+  for (const { input, expected } of normCases) {
+    const result = provider.normalizeModelId(input);
+    if (result === expected)
+      pass(`normalizeModelId("${input}") === "${expected}"`);
+    else
+      fail(`normalizeModelId("${input}")`, `expected "${expected}", got "${result}"`);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('3. listModels — filters to generateContent-capable models only');
+
+  const mockModelsResponse = {
+    models: [
+      { name: 'models/gemini-1.5-flash', displayName: 'Gemini 1.5 Flash',
+        supportedGenerationMethods: ['generateContent', 'countTokens'] },
+      { name: 'models/gemini-1.5-pro',   displayName: 'Gemini 1.5 Pro',
+        supportedGenerationMethods: ['generateContent'] },
+      { name: 'models/embedding-001',    displayName: 'Embedding 001',
+        supportedGenerationMethods: ['embedContent'] },           // must be excluded
+      { name: 'models/text-bison-001',   displayName: 'Text Bison',
+        supportedGenerationMethods: ['generateText'] },           // must be excluded
+    ]
+  };
+
+  await withMockFetch(mockFetch(200, mockModelsResponse), async () => {
+    try {
+      const models = await provider.listModels('fake-key');
+      if (models.length === 2)
+        pass('listModels: returned 2 generateContent models (filtered 2 non-content)');
+      else
+        fail('listModels: wrong count', `expected 2, got ${models.length}`);
+
+      if (models.every(m => m.id && m.name))
+        pass('listModels: every model has id and name');
+      else
+        fail('listModels: missing id or name on a model');
+
+      if (models[0].id === 'models/gemini-1.5-flash')
+        pass('listModels: first model id is canonical "models/..." path');
+      else
+        fail('listModels: first model id', `got "${models[0].id}"`);
+
+      const hasEmbedding = models.some(m => m.id.includes('embedding'));
+      if (!hasEmbedding) pass('listModels: embedding model correctly excluded');
+      else fail('listModels: embedding model should be excluded');
+    } catch (e) { fail('listModels threw unexpectedly', e.message); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('4. listModels — propagates API error correctly');
+
+  await withMockFetch(mockFetch(401, {}), async () => {
+    try {
+      await provider.listModels('bad-key');
+      fail('listModels 401: should have thrown');
+    } catch (e) {
+      if (e.message.includes('unauthorized') || e.message.includes('401'))
+        pass('listModels 401: throws with auth error message');
+      else
+        fail('listModels 401: unexpected error message', e.message);
+    }
+  });
+
+  await withMockFetch(mockFetch(403, {}), async () => {
+    try {
+      await provider.listModels('bad-key');
+      fail('listModels 403: should have thrown');
+    } catch (e) {
+      if (e.message.includes('unauthorized') || e.message.includes('403'))
+        pass('listModels 403: throws with auth error message');
+      else
+        fail('listModels 403: unexpected error message', e.message);
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('5. chat — constructs correct Gemini request format');
+
+  let capturedRequest = null;
+  const mockChatResponse = {
+    candidates: [
+      {
+        content: {
+          parts: [
+            { text: JSON.stringify({ type: 'text', message: 'Hello from Gemini' }) }
+          ]
+        },
+        finishReason: 'STOP'
+      }
+    ]
+  };
+
+  const requestCaptureFetch = async (url, opts) => {
+    capturedRequest = { url, opts };
+    return { ok: true, status: 200, json: async () => mockChatResponse };
+  };
+
+  const sanitizedCtx = { page: { url: 'https://example.com', title: 'Test' }, elements: [], text: 'sanitized text' };
+
+  await withMockFetch(requestCaptureFetch, async () => {
+    try {
+      await provider.chat('fake-key', 'models/gemini-1.5-flash', sanitizedCtx, 'What is on this page?');
+
+      // URL should contain the model path and :generateContent
+      if (capturedRequest.url.includes('models/gemini-1.5-flash') &&
+          capturedRequest.url.includes(':generateContent'))
+        pass('chat: URL contains model path and :generateContent');
+      else
+        fail('chat: URL format wrong', capturedRequest.url);
+
+      // Auth must be in header, NOT in URL
+      const headers = capturedRequest.opts.headers || {};
+      if (headers['x-goog-api-key'] === 'fake-key')
+        pass('chat: API key is in x-goog-api-key header');
+      else
+        fail('chat: x-goog-api-key header missing');
+
+      if (!capturedRequest.url.includes('fake-key') &&
+          !capturedRequest.url.includes('api-key') &&
+          !capturedRequest.url.includes('key='))
+        pass('chat: API key is NOT in the URL');
+      else
+        fail('chat: API key must not appear in URL');
+
+      // Body structure
+      const body = JSON.parse(capturedRequest.opts.body);
+      if (body.contents && body.contents[0] && body.contents[0].role === 'user')
+        pass('chat: body.contents[0].role === "user"');
+      else
+        fail('chat: body.contents[0].role missing or wrong');
+
+      if (body.contents[0].parts && body.contents[0].parts[0] && body.contents[0].parts[0].text)
+        pass('chat: body.contents[0].parts[0].text is present');
+      else
+        fail('chat: body.contents[0].parts[0].text missing');
+
+      if (body.systemInstruction && body.systemInstruction.parts && body.systemInstruction.parts[0].text)
+        pass('chat: systemInstruction is present');
+      else
+        fail('chat: systemInstruction missing');
+
+      if (body.generationConfig && body.generationConfig.responseMimeType === 'application/json')
+        pass('chat: generationConfig.responseMimeType === "application/json"');
+      else
+        fail('chat: generationConfig.responseMimeType missing or wrong');
+
+    } catch (e) { fail('chat threw unexpectedly', e.message); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('6. chat — sanitized context flows into user parts text');
+
+  await withMockFetch(requestCaptureFetch, async () => {
+    capturedRequest = null;
+    const ctx = { page: { url: 'https://t.com', title: 'T' }, elements: [], text: '[EMAIL_1] was here' };
+    try {
+      await provider.chat('k', 'models/gemini-1.5-flash', ctx, 'summarize');
+      const body = JSON.parse(capturedRequest.opts.body);
+      const text = body.contents[0].parts[0].text;
+      const parsed = JSON.parse(text);
+      if (parsed.sanitized_context && parsed.sanitized_context.text === '[EMAIL_1] was here')
+        pass('chat: sanitized_context.text included in user parts text');
+      else
+        fail('chat: sanitized_context not found in parts text');
+      if (parsed.user_query === 'summarize')
+        pass('chat: user_query included in user parts text');
+      else
+        fail('chat: user_query missing from parts text');
+    } catch (e) { fail('chat context forwarding threw', e.message); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('7. chat — raw PII blocked by assertSanitizedContext (ModelManager guard)');
+
+  // assertSanitizedContext is in ModelManager and runs before provider.chat().
+  // Here we verify the function itself from the exported module.
+  try {
+    const { assertSanitizedContext } = self.SIH_ModelManager || {};
+    if (typeof assertSanitizedContext !== 'function') {
+      out('  SKIP  assertSanitizedContext not available in this test scope (ModelManager not loaded)', 'info');
+    } else {
+      let blocked = false;
+      try { assertSanitizedContext({ page: {}, text: 'call me at 555-867-5309' }); }
+      catch (e) { blocked = true; }
+      if (blocked) pass('assertSanitizedContext: blocks raw phone number');
+      else fail('assertSanitizedContext: should block raw phone');
+
+      let blocked2 = false;
+      try { assertSanitizedContext({ page: {}, text: 'my email is user@example.com' }); }
+      catch (e) { blocked2 = true; }
+      if (blocked2) pass('assertSanitizedContext: blocks raw email address');
+      else fail('assertSanitizedContext: should block raw email');
+
+      let allowed = true;
+      try { assertSanitizedContext({ page: { url: 'https://example.com', title: 'Safe' }, elements: [], text: '[EMAIL_1] visited' }); }
+      catch (e) { allowed = false; }
+      if (allowed) pass('assertSanitizedContext: allows tokenized context');
+      else fail('assertSanitizedContext: should allow tokenized context');
+    }
+  } catch (e) { fail('assertSanitizedContext test threw', e.message); }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('8. chat response → normalizeResponse pipeline');
+
+  try {
+    const rawTextResp   = { type: 'text', message: 'Page summary here.' };
+    const normText = normalizeResponse(rawTextResp);
+    if (normText.type === 'text' && normText.message === 'Page summary here.')
+      pass('normalizeResponse: text response accepted');
+    else
+      fail('normalizeResponse: text response rejected', JSON.stringify(normText));
+
+    const rawActionResp = { type: 'action', action: { action: 'click', target: '#btn', riskLevel: 'low' } };
+    const normAction = normalizeResponse(rawActionResp);
+    if (normAction.type === 'action' && normAction.action.action === 'click')
+      pass('normalizeResponse: click action accepted');
+    else
+      fail('normalizeResponse: click action rejected');
+
+    // Unsupported action type must be rejected
+    let rejected = false;
+    try { normalizeResponse({ type: 'action', action: { action: 'eval', target: '#x' } }); }
+    catch (e) { rejected = true; }
+    if (rejected) pass('normalizeResponse: unsupported action "eval" rejected');
+    else fail('normalizeResponse: unsupported action should be rejected');
+
+  } catch (e) { fail('normalizeResponse suite threw', e.message); }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('9. chat — model not found (404)');
+
+  await withMockFetch(mockFetch(404, {}), async () => {
+    try {
+      await provider.chat('k', 'models/gemini-nonexistent', sanitizedCtx, 'test');
+      fail('chat 404: should have thrown');
+    } catch (e) {
+      if (e.message.includes('not found') || e.message.includes('404'))
+        pass('chat 404: throws model-not-found error');
+      else
+        fail('chat 404: unexpected error', e.message);
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('10. chat — quota/rate limit (429)');
+
+  await withMockFetch(mockFetch(429, {}), async () => {
+    try {
+      await provider.chat('k', 'models/gemini-1.5-flash', sanitizedCtx, 'test');
+      fail('chat 429: should have thrown');
+    } catch (e) {
+      if (e.message.includes('quota') || e.message.includes('rate') || e.message.includes('429'))
+        pass('chat 429: throws quota/rate-limit error');
+      else
+        fail('chat 429: unexpected error', e.message);
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('11. chat — empty model ID throws');
+
+  await withMockFetch(origFetch, async () => {
+    try {
+      await provider.chat('k', '', sanitizedCtx, 'test');
+      fail('chat empty model: should have thrown');
+    } catch (e) {
+      if (e.message.includes('No Gemini model'))
+        pass('chat empty model: throws with descriptive error');
+      else
+        fail('chat empty model: unexpected error', e.message);
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('12. Existing provider normalizeResponse contract is unchanged');
+
+  try {
+    // Groq/OpenRouter style response shapes must still work
+    const gr = normalizeResponse({ type: 'text', message: 'Groq response' });
+    if (gr.type === 'text') pass('normalizeResponse: Groq-style text still accepted');
+    else fail('normalizeResponse: Groq text regression');
+
+    const scroll = normalizeResponse({
+      type: 'action',
+      action: { action: 'scroll', target: '', value: '300', riskLevel: 'low' }
+    });
+    if (scroll.type === 'action' && scroll.action.action === 'scroll')
+      pass('normalizeResponse: scroll action still accepted');
+    else
+      fail('normalizeResponse: scroll action regression');
+
+  } catch (e) { fail('normalizeResponse regression threw', e.message); }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  section('13. API key never in URL (architecture check)');
+
+  const testKey = 'AIzaSy_TEST_KEY_DO_NOT_LOG';
+  await withMockFetch(requestCaptureFetch, async () => {
+    capturedRequest = null;
+    try {
+      await provider.chat(testKey, 'models/gemini-1.5-flash', sanitizedCtx, 'ping');
+    } catch (_) {}
+    if (capturedRequest) {
+      if (!capturedRequest.url.includes(testKey))
+        pass('API key: not present in URL');
+      else
+        fail('API key: MUST NOT appear in URL');
+
+      const body = capturedRequest.opts.body || '';
+      if (!body.includes(testKey))
+        pass('API key: not serialized into request body');
+      else
+        fail('API key: MUST NOT appear in request body');
+    }
+  });
+
+  // ── Final summary ────────────────────────────────────────────────────────────
+  const total = passed + failed;
+  summaryEl.innerHTML =
+    `<span class="${failed === 0 ? 'pass' : 'fail'}">` +
+    `${passed}/${total} tests passed${failed > 0 ? ' — ' + failed + ' FAILED' : ' — ALL PASS'}` +
+    `</span>`;
+}
+
+runAll().catch(err => {
+  out('\nTest runner error: ' + err.message, 'fail');
+});
+</script>
+</body>
+</html>

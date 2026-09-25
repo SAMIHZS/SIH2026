@@ -38,7 +38,7 @@ function executeAction(action) {
  * Execute a click action.
  */
 function executeClick(action) {
-  const element = document.querySelector(action.target);
+  const element = window.SIH_ElementRegistry ? window.SIH_ElementRegistry.resolve(action.target) : null;
   if (!element) {
     return { success: false, error: `Click target not found: ${action.target}` };
   }
@@ -59,7 +59,7 @@ function executeClick(action) {
  * Handles React/Vue/controlled inputs by dispatching synthetic events.
  */
 function executeType(action) {
-  const element = document.querySelector(action.target);
+  const element = window.SIH_ElementRegistry ? window.SIH_ElementRegistry.resolve(action.target) : null;
   if (!element) {
     return { success: false, error: `Type target not found: ${action.target}` };
   }
@@ -97,7 +97,7 @@ function executeType(action) {
 function executeScroll(action) {
   if (action.target) {
     // Scroll to specific element
-    const element = document.querySelector(action.target);
+    const element = window.SIH_ElementRegistry ? window.SIH_ElementRegistry.resolve(action.target) : null;
     if (!element) {
       return { success: false, error: `Scroll target not found: ${action.target}` };
     }

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Phase 2 Redaction Test</title>
+  <script src="../extension/vision/redactor.js"></script>
+  <script src="../extension/sanitize.js"></script>
+</head>
+<body>
+  <h1>Phase 2 Redaction Test</h1>
+  <div id="results"></div>
+  <script>
+    const results = document.getElementById('results');
+    function report(name, passed) {
+      const item = document.createElement('p');
+      item.textContent = `${passed ? 'PASS' : 'FAIL'}: ${name}`;
+      item.style.color = passed ? 'green' : 'red';
+      results.appendChild(item);
+    }
+
+    const source = document.createElement('canvas');
+    source.width = window.innerWidth;
+    source.height = window.innerHeight;
+    const sourceContext = source.getContext('2d');
+    sourceContext.fillStyle = '#ffffff';
+    sourceContext.fillRect(0, 0, source.width, source.height);
+    sourceContext.fillStyle = '#ff0000';
+    sourceContext.fillRect(10, 10, 10, 10);
+
+    const redactionStarted = performance.now();
+    window.SIH_Redactor.redactImage(source.toDataURL('image/png'), [{ x: 10, y: 10, width: 10, height: 10 }])
+      .then(redactedUrl => {
+        const image = new Image();
+        image.onload = () => {
+          const output = document.createElement('canvas');
+          output.width = source.width;
+          output.height = source.height;
+          const context = output.getContext('2d');
+          context.drawImage(image, 0, 0);
+          const pixel = context.getImageData(15, 15, 1, 1).data;
+          report('Sensitive pixel is changed by local redaction', pixel[0] !== 255 || pixel[1] !== 0 || pixel[2] !== 0);
+          report('Redaction output remains a PNG data URL', redactedUrl.startsWith('data:image/png'));
+          report('Measured redaction timing is numeric', typeof (performance.now() - redactionStarted) === 'number', `${(performance.now() - redactionStarted).toFixed(1)}ms`);
+          document.body.insertAdjacentText('beforeend', ' Synthetic email jane@secure.org');
+          const sanitizedContext = window.SIH_Sanitizer
+            ? window.SIH_Sanitizer.buildSanitizedContext([{ type: 'email', value: 'jane@secure.org', source: 'ocr', confidence: 0.88 }], redactedUrl)
+            : null;
+          report('Only the locally redacted image enters SanitizedContext', Boolean(sanitizedContext && sanitizedContext.screenshot === redactedUrl && sanitizedContext.screenshot !== source.toDataURL('image/png')));
+        };
+        image.src = redactedUrl;
+      })
+      .catch(error => report(`Redaction completes without error: ${error.message}`, false));
+  </script>
+</body>
+</html>

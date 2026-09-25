@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Phase 2 Vision Runtime Test</title>
+  <script>
+    window.chrome = { runtime: { getURL(path) { return new URL(`../extension/${path}`, window.location.href).href; } } };
+  </script>
+  <script src="../extension/detectors/visionDetector.js"></script>
+  <script src="../extension/vision/mediaPipeLoader.js"></script>
+  <script type="module">
+    try {
+      const vision = await import('../extension/vendor/mediapipe/vision_bundle.mjs');
+      window.SIH_MediaPipeVision = vision;
+      if (window.SIH_MediaPipeLoader) window.SIH_MediaPipeLoader.configure({ vision });
+    } catch (e) {
+      if (window.SIH_MediaPipeLoader) window.SIH_MediaPipeLoader.configure();
+    }
+  </script>
+</head>
+<body>
+  <h1>Phase 2 Vision Runtime Test</h1>
+  <p id="status">Loading local MediaPipe...</p>
+  <div id="results"></div>
+  <script>
+    const results = document.getElementById('results');
+    function report(name, passed, detail) {
+      const item = document.createElement('p');
+      item.textContent = `${passed ? 'PASS' : 'FAIL'}: ${name}${detail ? ` (${detail})` : ''}`;
+      item.style.color = passed ? 'green' : 'red';
+      results.appendChild(item);
+    }
+
+    if (window.SIH_MediaPipeLoader) window.SIH_MediaPipeLoader.configure();
+    const canvas = document.createElement('canvas');
+    canvas.width = 320;
+    canvas.height = 240;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#f2c09b';
+    context.beginPath();
+    context.arc(160, 120, 70, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = '#111827';
+    context.beginPath();
+    context.arc(135, 105, 8, 0, Math.PI * 2);
+    context.arc(185, 105, 8, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = '#111827';
+    context.lineWidth = 6;
+    context.beginPath();
+    context.arc(160, 130, 30, 0.2, Math.PI - 0.2);
+    context.stroke();
+
+    const image = new Image();
+    image.onload = async () => {
+      const result = await window.SIH_VisionDetector.detect(image);
+      document.getElementById('status').textContent = result.available ? 'Local Vision completed' : 'Local Vision unavailable';
+      report('MediaPipe runtime and face model load locally', result.available, result.reason || 'available');
+      report('Vision returns Detection[]', Array.isArray(result.detections));
+      report('Synthetic face is detected locally', result.detections.some(item => item.type === 'face'));
+      report('Face detection includes a bounding box', result.detections.some(item => item.bbox && item.bbox.width > 0));
+      const cvInitMs = result.timings?.cvInitMs;
+      const cvMs = result.timings?.cvMs;
+      const timingStr = typeof cvInitMs === 'number' && typeof cvMs === 'number'
+        ? `${cvInitMs.toFixed(1)}ms init, ${cvMs.toFixed(1)}ms inference`
+        : 'unavailable';
+      report('Measured CV timings are numeric', typeof cvInitMs === 'number' && typeof cvMs === 'number', timingStr);
+    };
+    image.src = canvas.toDataURL('image/png');
+  </script>
+</body>
+</html>
