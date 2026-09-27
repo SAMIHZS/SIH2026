@@ -38,15 +38,23 @@
     const config = normalizeConfig(input && input.config);
     const detections = Array.isArray(input && input.detections) ? input.detections : [];
     const visualEvidence = hasVisualEvidence(input);
+    const cvEnabled = Boolean(config.allowCv && input?.cvAvailable !== false);
+
     const decision = {
       runOcr: false,
-      runCv: false,
+      runCv: visualEvidence && cvEnabled,
       reason: 'cheap-detectors-sufficient',
-      estimatedCost: DETECTOR_COST.DOM + DETECTOR_COST.REGEX,
+      estimatedCost: DETECTOR_COST.DOM + DETECTOR_COST.REGEX + (visualEvidence && cvEnabled ? DETECTOR_COST.CV : 0),
       visualEvidence
     };
 
-    if (confidenceIsSufficient(detections, config)) return decision;
+    if (confidenceIsSufficient(detections, config)) {
+      if (visualEvidence) {
+        decision.reason = 'text-sufficient-visual-evidence-present';
+      }
+      return decision;
+    }
+
     if (!visualEvidence) {
       decision.reason = 'no-visual-evidence';
       return decision;
@@ -58,11 +66,6 @@
       decision.reason = 'insufficient-cheap-detector-confidence';
     } else if (config.allowOcr) {
       decision.reason = 'ocr-unavailable';
-    }
-
-    if (!config.allowCv || !config.requireVisualEvidenceForCv || visualEvidence) {
-      decision.runCv = Boolean(config.allowCv && input?.cvAvailable !== false && !decision.runOcr);
-      if (config.allowCv && input?.cvAvailable === false && !decision.runOcr) decision.reason = 'cv-unavailable';
     }
 
     return decision;

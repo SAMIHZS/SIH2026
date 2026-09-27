@@ -11,6 +11,8 @@
     "tabs"
   ],
   "host_permissions": [
+    "<all_urls>",
+    "file:///*",
     "https://api.groq.com/*",
     "https://openrouter.ai/*",
     "https://generativelanguage.googleapis.com/*"
@@ -18,30 +20,30 @@
   "background": {
     "service_worker": "background.js"
   },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
       "js": [
-        "theme.js",
         "logger.js",
         "detectors/domDetector.js",
         "detectors/regexDetector.js",
         "detectors/ocrDetector.js",
-        "detectors/visionDetector.js",
-        "vision/mediaPipeLoader.js",
         "vision/visualPipeline.js",
         "metrics.js",
         "perceptionSchema.js",
         "detectionGate.js",
         "detectionFusion.js",
-        "vision/redactor.js",
         "elementRegistry.js",
+        "grounding.js",
         "sanitize.js",
         "validate.js",
         "execute.js",
         "content.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ],
   "action": {

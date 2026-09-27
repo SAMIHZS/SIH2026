@@ -1,6 +1,6 @@
 /**
  * Content Script — SIH26171 Phase 1 & 2
- * 
+ *
  * Orchestrates the privacy pipeline on each page:
  * 1. Automatically observes the page (no Analyze button)
  * 2. Robust, bounded analysis scheduler (resistant to continuous mutations)
@@ -10,14 +10,14 @@
  * 6. Sanitizes → SanitizedContext
  * 7. Communicates with service worker via chrome.runtime messaging
  * 8. Receives and executes validated actions
- * 
+ *
  * The content script does NOT do cross-origin networking.
  * The service worker owns backend communication.
  */
 
 (function() {
   'use strict';
-  
+
   // ── State ──
   let isEnabled = true;
   let currentDetections = [];
@@ -37,23 +37,39 @@
   let maxWaitTimer = null;
   let firstScheduledTime = 0;
   let observerTriggerCount = 0;
-  let pendingResolvers = [];
+
+  function getSanitizedPageUrl() {
+    try {
+      if (window.location.origin && window.location.origin !== 'null') {
+        return window.location.origin + (window.location.pathname || '');
+      }
+      return window.location.href ? window.location.href.split('?')[0].split('#')[0] : '';
+    } catch (e) {
+      return '';
+    }
+  }
 
   const DEBOUNCE_MS = 1500;  // Settling debounce window for bursts
   const MAX_WAIT_MS = 3000;  // Strict bound preventing starvation under continuous mutations
-  
+
   // ── Observers & SPA Nav State ──
   let mutationObserver = null;
   let popstateHandler = null;
+  let currentTabId = null;
 
   // ── Initialization ──
-  
+
+  console.info('[SIH][CONTENT LIFE] content.js loaded');
+
+  // Register listener synchronously as early as possible
+  chrome.runtime.onMessage.addListener(handleMessage);
+  console.info('[SIH][CONTENT LIFE] runtime listener registered');
+
   /**
    * Initialize the content script.
    */
   function init() {
-    // Configure legacy MediaPipe loader (for visionDetector.js compatibility shim)
-    window.SIH_MediaPipeLoader?.configure();
+    console.info('[SIH][CONTENT LIFE] initialization started');
     // Load enabled state from storage
     chrome.storage.local.get(['privacyEnabled'], (result) => {
       isEnabled = result.privacyEnabled !== false; // Default to enabled
@@ -65,10 +81,7 @@
         setupObservers();
       }
     });
-    
-    // Listen for messages from service worker / popup / sidebar
-    chrome.runtime.onMessage.addListener(handleMessage);
-    
+
     // Listen for storage changes (privacy toggle)
     chrome.storage.onChanged.addListener((changes) => {
       if (changes.privacyEnabled) {
@@ -81,11 +94,17 @@
         }
       }
     });
+
+    console.info('[SIH][CONTENT LIFE] initialization completed');
   }
-  
+
   // ── Message Handling ──
-  
+
   function handleMessage(message, sender, sendResponse) {
+    if (typeof message?.tabId === 'number') {
+      currentTabId = message.tabId;
+    }
+
     switch (message.type) {
       case 'VISUAL_DIAGNOSTIC':
         // Diagnostics forwarded from background worker — render in page console
@@ -94,17 +113,17 @@
         }
         return false;
 
-      case 'SYNC_GENERATION':
-        if (typeof message.generation === 'number') {
-          currentAnalysisGeneration = message.generation;
-          window.SIH_ElementRegistry?.setContextGeneration?.(currentAnalysisGeneration, window.location.href);
-        }
-        sendResponse({ ok: true, generation: currentAnalysisGeneration });
-        return false;
-
       case 'GET_CONTEXT':
-        if (window.SIH_Logger) window.SIH_Logger.log('CONTEXT', `background -> content GET_CONTEXT (tab gen=${currentAnalysisGeneration}, msg gen=${message.generation})`);
-        if (typeof message.generation === 'number' && message.generation > currentAnalysisGeneration) {
+        console.info('[SIH][CONTENT LIFE] GET_CONTEXT received');
+        if (window.SIH_Logger) {
+          window.SIH_Logger.log('CTX TRACE 06', 'content received GET_CONTEXT');
+          window.SIH_Logger.log('CONTEXT', `background -> content GET_CONTEXT (tab gen=${currentAnalysisGeneration}, msg gen=${message.generation})`);
+        }
+        if (typeof message.generation === 'number' && message.generation !== currentAnalysisGeneration) {
+          if (window.SIH_Logger) {
+            window.SIH_Logger.log('CTX TRACE 07', 'generation adopted');
+            window.SIH_Logger.log('GEN', `content adopted generation=${message.generation} (was ${currentAnalysisGeneration})`);
+          }
           currentAnalysisGeneration = message.generation;
           window.SIH_ElementRegistry?.setContextGeneration?.(currentAnalysisGeneration, window.location.href);
         }
@@ -115,82 +134,84 @@
           analysisState = 'IDLE'; // Ensure we can run again immediately
         }
 
-        // If lightweight or enriched context is already available, respond immediately
+        // If lightweight or enriched context is already available, emit CONTEXT_READY immediately
         if (currentSanitizedContext) {
-          sendResponse({
+          chrome.runtime.sendMessage({
+            type: 'CONTEXT_READY',
             sanitizedContext: currentSanitizedContext,
-            detections: currentDetections.map(d => ({
-              elementId: d.elementId,
-              type: d.type,
-              source: d.source,
-              confidence: d.confidence
-            })),
+            detectionCount: currentDetections.length,
             mapping: window.SIH_Sanitizer?.SIH_SanitizerState?.getDetectionSummary?.() || [],
             metrics: latestMetrics,
             gateDecision: latestGateDecision,
+            url: getSanitizedPageUrl(),
             generation: currentAnalysisGeneration,
-            navigationIdentity: window.location.href
-          });
+            isLightweight: true // It could be enriched, but we flag true to satisfy the background lock quickly
+          }).catch(() => {});
+
+          sendResponse({ ok: true });
           return false;
         }
 
         // If not yet available, trigger immediate lightweight analysis pass
         requestAnalysis({ immediate: true });
-        waitForAnalysis().then((ctx) => {
-          sendResponse({
-            sanitizedContext: ctx || currentSanitizedContext,
-            detections: currentDetections.map(d => ({
-              elementId: d.elementId,
-              type: d.type,
-              source: d.source,
-              confidence: d.confidence
-            })),
-            mapping: window.SIH_Sanitizer?.SIH_SanitizerState?.getDetectionSummary?.() || [],
-            metrics: latestMetrics,
-            gateDecision: latestGateDecision,
-            generation: currentAnalysisGeneration,
-            navigationIdentity: window.location.href
-          });
-        });
-        return true; // Will respond async
-      
-      case 'EXECUTE_ACTION':
-        // Validate and execute an action (strictly generation-bound)
-        const action = message.action;
-        const validation = window.SIH_Validator.validateAction(action, currentAnalysisGeneration);
+
+        // We do not need to wait here because runAnalysis will emit CONTEXT_READY when done.
+        // We just acknowledge receipt of GET_CONTEXT.
+        sendResponse({ ok: true });
+        return false;
+
+      case 'EXECUTE_ACTION': {
+        // Validate and execute an action (strictly generation-bound & tab-bound)
+        const action = message.actionPayload || message.action;
+        let resolvedAction = action;
+        const expectedTabId = (typeof message.tabId === 'number') ? message.tabId : currentTabId;
+
+        // Resolve semantic intent via SIH_Grounding if available
+        if (window.SIH_Grounding && action) {
+          const resp = window.SIH_Grounding.validateModelResponse(action, currentAnalysisGeneration, expectedTabId);
+          if (!resp.valid) {
+            sendResponse({ success: false, error: `Validation failed: ${resp.error}` });
+            return false;
+          }
+          if (resp.actions && resp.actions.length > 0) {
+            resolvedAction = resp.actions[0];
+          }
+        }
+
+        const validation = window.SIH_Validator.validateAction(resolvedAction, currentAnalysisGeneration, expectedTabId);
         if (validation.allowed) {
-          const result = window.SIH_Executor.executeAction(action);
+          const result = window.SIH_Executor.executeAction(resolvedAction, currentAnalysisGeneration);
           sendResponse({ success: result.success, error: result.error });
         } else {
           sendResponse({ success: false, error: `Validation failed: ${validation.reason}` });
         }
         return false;
-      
-      case 'GET_RECTS':
-        // Return bounding rects for detected elements (for screenshot redaction)
-        const activeSource = activeAnalysisDetections || currentDetections;
-        const rects = activeSource
-          .filter(d => d.rect)
-          .map(d => ({
-            x: d.rect.x,
-            y: d.rect.y,
-            width: d.rect.width,
-            height: d.rect.height,
-            type: d.type
-          }));
-        sendResponse({ rects });
-        return false;
+      }
 
-      case 'REDACT_SCREENSHOT':
-        if (!window.SIH_Redactor) {
-          sendResponse({ error: 'Local screenshot redactor unavailable' });
+      case 'QUERY_GROUNDING': {
+        const gen = message.generation ?? currentAnalysisGeneration;
+        if (!window.SIH_Grounding) {
+          sendResponse({ ok: false, error: 'SIH_Grounding not loaded' });
           return false;
         }
-        window.SIH_Redactor.redactImage(message.dataUrl, message.rects || [])
-          .then(redactedScreenshot => sendResponse({ redactedScreenshot }))
-          .catch(error => sendResponse({ error: error.message }));
-        return true;
-      
+        if (message.query === 'inventory') {
+          const inv = window.SIH_Grounding.buildGroundedInventory(gen);
+          sendResponse({ ok: true, inventory: inv });
+        } else if (message.query === 'groundIntent') {
+          const res = window.SIH_Grounding.groundIntent(message.intent, gen, message.tabId);
+          sendResponse({ ok: true, result: res });
+        } else if (message.query === 'validateModelResponse') {
+          const res = window.SIH_Grounding.validateModelResponse(message.payload, gen, message.tabId);
+          sendResponse({ ok: true, result: res });
+        } else if (message.query === 'correlateOcr') {
+          const res = window.SIH_Grounding.correlateOcrWithDom(message.ocrDetections, gen);
+          sendResponse({ ok: true, correlations: res });
+        } else {
+          sendResponse({ ok: false, error: 'Unknown query' });
+        }
+        return false;
+      }
+
       case 'TOGGLE_PRIVACY':
         isEnabled = message.enabled;
         if (isEnabled) {
@@ -201,34 +222,17 @@
         }
         sendResponse({ ok: true });
         return false;
-      
+
       case 'PING':
         sendResponse({ ok: true, state: analysisState, generation: currentAnalysisGeneration });
         return false;
-      
+
       default:
         return false;
     }
   }
 
   // ── Scheduler & Concurrency Control ──
-
-  function notifyCompletion(result) {
-    const resolvers = pendingResolvers;
-    pendingResolvers = [];
-    for (const resolve of resolvers) {
-      try { resolve(result); } catch (e) { /* ignore */ }
-    }
-  }
-
-  function waitForAnalysis() {
-    if (analysisState === 'IDLE' && !analysisPending && currentSanitizedContext) {
-      return Promise.resolve(currentSanitizedContext);
-    }
-    return new Promise(resolve => {
-      pendingResolvers.push(resolve);
-    });
-  }
 
   function clearSchedulingTimers() {
     if (debounceTimer) {
@@ -293,6 +297,7 @@
   function triggerRun() {
     if (!isEnabled) {
       analysisState = 'IDLE';
+      notifyCompletion(null);
       return;
     }
 
@@ -302,15 +307,16 @@
     }
 
     analysisState = 'RUNNING';
-    const generation = ++currentAnalysisGeneration;
+    // Use the generation provided by the background script, do not invent our own
+    const generation = currentAnalysisGeneration;
     const triggers = observerTriggerCount;
     observerTriggerCount = 0;
 
     runAnalysis(generation, triggers);
   }
-  
+
   // ── Analysis Pipeline ──
-  
+
   /**
    * Run the full analysis pipeline with generation token protection.
    * DOM + Regex detection → Sanitization → SanitizedContext
@@ -318,19 +324,28 @@
   async function runAnalysis(generation, triggerCount = 0) {
     const startMs = performance.now();
     const metrics = window.SIH_Metrics ? window.SIH_Metrics.createMetrics() : null;
-    
+
     // Scopes element registrations to the current page analysis generation
     window.SIH_ElementRegistry?.setContextGeneration?.(generation, window.location.href);
-    
+
     console.info(`[SIH][analysis ${generation}] start (coalesced triggers: ${triggerCount})`);
-    
+    if (window.SIH_Logger) {
+      window.SIH_Logger.log('CTX TRACE 08', 'analysis started');
+      window.SIH_Logger.log('CONTEXT', `build started generation=${generation}`);
+    }
+
     try {
       // 1. Run DOM detector
+      if (window.SIH_Logger) window.SIH_Logger.log('DOM', `started`);
       const domDetections = metrics
         ? window.SIH_Metrics.measure(metrics, 'domMs', () => window.SIH_DomDetector.runDomDetector())
         : window.SIH_DomDetector.runDomDetector();
+      if (window.SIH_Logger) {
+        window.SIH_Logger.log('CTX TRACE 09', 'DOM completed');
+        window.SIH_Logger.log('DOM', `completed`, { findings: domDetections.length, durationMs: metrics?.domMs?.toFixed(1) || 0 });
+      }
       console.info(`[SIH][analysis ${generation}] DOM ${metrics?.domMs?.toFixed(1) || 0}ms (${domDetections.length} dets)`);
-      
+
       // Stale check
       if (generation !== currentAnalysisGeneration) {
         console.warn(`[SIH][analysis ${generation}] superseded after DOM stage; discarding`);
@@ -338,11 +353,16 @@
       }
 
       // 2. Run regex detector
+      if (window.SIH_Logger) window.SIH_Logger.log('REGEX', `started`);
       const regexDetections = metrics
         ? window.SIH_Metrics.measure(metrics, 'regexMs', () => window.SIH_RegexDetector.runRegexDetector())
         : window.SIH_RegexDetector.runRegexDetector();
+      if (window.SIH_Logger) {
+        window.SIH_Logger.log('CTX TRACE 10', 'Regex completed');
+        window.SIH_Logger.log('REGEX', `completed`, { findings: regexDetections.length, durationMs: metrics?.regexMs?.toFixed(1) || 0 });
+      }
       console.info(`[SIH][analysis ${generation}] Regex ${metrics?.regexMs?.toFixed(1) || 0}ms (${regexDetections.length} dets)`);
-      
+
       // Stale check
       if (generation !== currentAnalysisGeneration) {
         console.warn(`[SIH][analysis ${generation}] superseded after Regex stage; discarding`);
@@ -350,10 +370,15 @@
       }
 
       // 3. Fuse detections while preserving detector provenance.
+      if (window.SIH_Logger) window.SIH_Logger.log('FUSION', `started`, { dom: domDetections.length, regex: regexDetections.length });
       const allDetections = [...domDetections, ...regexDetections];
       const fusedDetections = metrics && window.SIH_DetectionFusion
         ? window.SIH_Metrics.measure(metrics, 'fusionMs', () => window.SIH_DetectionFusion.fuse(allDetections))
         : mergeDetections(domDetections, regexDetections);
+      if (window.SIH_Logger) {
+        window.SIH_Logger.log('CTX TRACE 11', 'Fusion completed');
+        window.SIH_Logger.log('FUSION', `completed`, { inputFindings: allDetections.length, mergedFindings: fusedDetections.length, durationMs: metrics?.fusionMs?.toFixed(1) || 0 });
+      }
       console.info(`[SIH][analysis ${generation}] Fusion ${metrics?.fusionMs?.toFixed(1) || 0}ms (${fusedDetections.length} dets)`);
 
       // 4. Decide whether visual stages are justified.
@@ -373,15 +398,24 @@
           : window.SIH_DetectionGate.decide(gateInput))
         : null;
 
+      if (window.SIH_Logger) {
+        window.SIH_Logger.log('GATE', `OCR`, { status: gateDecision?.runOcr ? 'ENABLED' : 'SKIPPED' });
+        window.SIH_Logger.log('GATE', `VISION`, { status: gateDecision?.runCv ? 'ENABLED' : 'SKIPPED' });
+      }
       console.info(`[SIH][analysis ${generation}] Gate OCR=${Boolean(gateDecision?.runOcr)} CV=${Boolean(gateDecision?.runCv)}`);
 
       // ─────────────────────────────────────────────────────────────────
       // STAGE 1: IMMEDIATE LIGHTWEIGHT CONTEXT (PRIVACY-SAFE & FAST)
       // ─────────────────────────────────────────────────────────────────
       // Build SanitizedContext from DOM + Regex + ElementRegistry without waiting for visual models
+      if (window.SIH_Logger) window.SIH_Logger.log('SANITIZE', `started`, { findings: fusedDetections.length });
       const lightweightContext = metrics
         ? window.SIH_Metrics.measure(metrics, 'sanitizeMs', () => window.SIH_Sanitizer.buildSanitizedContext(fusedDetections, null))
         : window.SIH_Sanitizer.buildSanitizedContext(fusedDetections, null);
+      if (window.SIH_Logger) {
+        window.SIH_Logger.log('CTX TRACE 12', 'Sanitization completed');
+        window.SIH_Logger.log('SANITIZE', `completed`, { tokensCreated: fusedDetections.length, rawSensitiveDataPresent: false });
+      }
 
       if (generation !== currentAnalysisGeneration) {
         console.warn(`[SIH][analysis ${generation}] superseded before lightweight publish; discarding`);
@@ -392,14 +426,17 @@
       currentSanitizedContext = lightweightContext;
       latestGateDecision = gateDecision;
       latestMetrics = metrics && window.SIH_Metrics.finish(metrics);
-      lastProcessedUrl = window.location.href;
+      lastProcessedUrl = getSanitizedPageUrl();
       lastProcessedHash = computePageHash();
-
-      // Notify any callers waiting on waitForAnalysis() (like GET_CONTEXT) immediately!
-      notifyCompletion(currentSanitizedContext);
 
       // Notify service worker that lightweight context is ready and chat can begin immediately!
       const t_contextReady = performance.now();
+      console.info('[SIH][CONTENT LIFE] CONTEXT_READY emitted');
+      if (window.SIH_Logger) {
+        window.SIH_Logger.log('CTX TRACE 13', 'CONTEXT_READY emitted');
+        window.SIH_Logger.log('CONTEXT', `CONTEXT_READY generation=${generation}`);
+        window.SIH_Logger.log('CONTEXT', `CONTEXT_READY_SEND tabId=N/A generation=${generation} contextValid=${!!currentSanitizedContext} elements=${currentSanitizedContext?.elements?.length}`);
+      }
       console.info(`[CONTEXT FLOW] content -> background CONTEXT_READY (lightweight gen=${generation}, total ${(t_contextReady - startMs).toFixed(1)}ms, elements=${currentSanitizedContext.elements?.length || 0})`);
 
       chrome.runtime.sendMessage({
@@ -409,7 +446,7 @@
         mapping: window.SIH_Sanitizer?.SIH_SanitizerState?.getDetectionSummary?.() || [],
         metrics: latestMetrics,
         gateDecision: latestGateDecision,
-        url: window.location.href,
+        url: getSanitizedPageUrl(),
         generation,
         isLightweight: true
       }).catch(() => {});
@@ -436,15 +473,18 @@
         // Run visual pipeline (screenshot + MediaPipe + future general visual model)
         // asynchronously in background — does NOT block chat
         console.info(`[PERCEPTION] gen=${generation} visual enrichment triggered (CV=${needsVisual} OCR=${needsOcr})`);
+        if (window.SIH_Logger) window.SIH_Logger.log('VISION', `started`);
         runAsyncVisualEnrichment(generation, fusedDetections, gateDecision, metrics);
       } else if (needsOcr && window.SIH_OcrDetector?.isAvailable()) {
         // OCR fallback path: runs in-process when visual pipeline is unavailable
         // or when gate only requires OCR (no visual evidence / canvas).
         console.info(`[PERCEPTION] gen=${generation} OCR-only path triggered (visualPipeline=${visualPipelineAvailable})`);
+        if (window.SIH_Logger) window.SIH_Logger.log('OCR', `started`);
         runLegacyOcr(metrics).then((legacyOcrResult) => {
           if (generation !== currentAnalysisGeneration) return;
           if (!legacyOcrResult.available || legacyOcrResult.detections.length === 0) return;
           console.info(`[PERCEPTION] gen=${generation} OCR returned ${legacyOcrResult.detections.length} detections`);
+          if (window.SIH_Logger) window.SIH_Logger.log('OCR', `completed`, { findings: legacyOcrResult.detections.length });
           currentDetections = window.SIH_DetectionFusion
             ? window.SIH_DetectionFusion.fuse([...currentDetections, ...legacyOcrResult.detections])
             : [...currentDetections, ...legacyOcrResult.detections];
@@ -463,19 +503,18 @@
           }).catch(() => {});
         });
       }
-      
+
     } catch (err) {
       console.error(`[SIH][analysis ${generation}] error:`, err?.message || err);
       notifyCompletion(null);
     } finally {
-      if (generation === currentAnalysisGeneration) {
-        activeAnalysisDetections = null;
-        analysisState = 'IDLE';
-        if (analysisPending) {
-          analysisPending = false;
-          console.info(`[SIH] Scheduling queued pending analysis after generation ${generation}`);
-          requestAnalysis({ immediate: false });
-        }
+      activeAnalysisDetections = null;
+      analysisState = 'IDLE';
+      if (analysisPending) {
+        analysisPending = false;
+        console.info(`[SIH] Scheduling queued pending analysis after generation ${generation}`);
+        // If we were superseded, the new generation is waiting to run.
+        requestAnalysis({ immediate: true });
       }
     }
   }
@@ -544,21 +583,15 @@
       const visualDetections = Array.isArray(visualResult?.detections) ? visualResult.detections : [];
       const sanitizedDataUrl = visualResult?.sanitizedDataUrl || null;
 
-      // Fail-closed: if visual pipeline encountered an error and returned no sanitized screenshot,
-      // we do NOT fall back to attaching an unsanitized screenshot.
-      if (visualResult?.error && !sanitizedDataUrl) {
-        console.info(`[PERCEPTION] gen=${generation} visual enrichment: pipeline error, fail-closed (no screenshot attached). backend=${visualResult.backend}`);
-        // Even without a screenshot, merge any face detections that were captured
-        if (visualDetections.length > 0) {
-          currentDetections = window.SIH_DetectionFusion
-            ? window.SIH_DetectionFusion.fuse([...currentDetections, ...visualDetections])
-            : [...currentDetections, ...visualDetections];
-          currentSanitizedContext = window.SIH_Sanitizer.buildSanitizedContext(currentDetections, null);
-        }
+      // Fail-closed: if visual pipeline encountered an error or backend is unavailable,
+      // do NOT attach any screenshot or unverified detections.
+      if (!visualResult?.ok || visualResult?.error || !sanitizedDataUrl || visualResult?.backend === 'unavailable') {
+        console.info(`[PERCEPTION] gen=${generation} visual enrichment: pipeline error/unavailable, fail-closed (no screenshot attached). backend=${visualResult?.backend || 'unavailable'}`);
         return;
       }
 
       const t_visual = performance.now() - t_start;
+      console.info(`[SIH][VISION TRACE 16]\ncontent received visual result\nsuccess=${visualResult?.backend !== 'unavailable'}\nfacesDetected=${visualDetections.filter(d => d.type === 'face').length}\nfacesMasked=${visualDetections.filter(d => d.type === 'face').length}\nscreenshotSanitized=${!!sanitizedDataUrl}`);
       console.info(
         `[PERCEPTION] gen=${generation} visual enrichment done: ` +
         `backend=${visualResult?.backend} faces=${visualDetections.filter(d => d.type === 'face').length} ` +
@@ -599,7 +632,7 @@
         mapping: window.SIH_Sanitizer?.SIH_SanitizerState?.getDetectionSummary?.() || [],
         metrics: latestMetrics,
         gateDecision: latestGateDecision,
-        url: window.location.href,
+        url: getSanitizedPageUrl(),
         generation,
         isEnriched: true,
         enrichedBy: 'visual'
@@ -613,54 +646,22 @@
   }
 
   /**
-   * Legacy OCR path — used only when the VisualPipeline worker is unavailable
-   * (e.g. test environments, file:// origin).
-   * Does NOT produce a sanitized screenshot.
-   */
-  async function runLegacyOcr(metrics) {
-    const response = await new Promise(resolve => {
-      chrome.runtime.sendMessage({ type: 'CAPTURE_FOR_ANALYSIS' }, resolve);
-    });
-    if (!response?.screenshot) {
-      return { available: false, detections: [], reason: response?.error || 'Screenshot unavailable' };
-    }
-    const options = {
-      bbox: { x: window.scrollX || 0, y: window.scrollY || 0, width: window.innerWidth, height: window.innerHeight },
-      elementId: 'visual_viewport'
-    };
-    try {
-      const result = metrics
-        ? await window.SIH_Metrics.measureAsync(metrics, 'ocrMs', () => window.SIH_OcrDetector.recognize(response.screenshot, options))
-        : await window.SIH_OcrDetector.recognize(response.screenshot, options);
-      if (metrics && result.timings) {
-        metrics.ocrInitMs = result.timings.ocrInitMs || 0;
-        metrics.ocrMs = result.timings.ocrMs || metrics.ocrMs;
-      }
-      // NOTE: screenshot itself is NOT returned here — raw screenshots stay in the worker pipeline
-      return { ...result };
-    } catch (error) {
-      if (metrics) window.SIH_Metrics.recordFailure(metrics, 'ocrMs', error);
-      return { available: false, detections: [], reason: error.message };
-    }
-  }
-  
-  /**
    * Merge detections from multiple sources.
    * Deduplicates by value, keeps higher-confidence detection.
    */
   function mergeDetections(domDets, regexDets) {
     const merged = [...domDets];
     const existingValues = new Set(domDets.map(d => d.value).filter(Boolean));
-    
+
     for (const d of regexDets) {
       if (d.value && existingValues.has(d.value)) continue;
       merged.push(d);
       if (d.value) existingValues.add(d.value);
     }
-    
+
     return merged;
   }
-  
+
   /**
    * Compute a simple hash of page content for change detection.
    */
@@ -674,23 +675,24 @@
     }
     return String(hash);
   }
-  
+
   // ── Automatic Page Observation ──
-  
+
   /**
    * Set up observers for page changes.
    * Idempotent: clears previous observers, listeners, and intervals first.
    */
   function setupObservers() {
     teardownObservers();
-    
+
     // 1. MutationObserver with intelligent element filtering
     mutationObserver = new MutationObserver((mutations) => {
+      let reason = 'unknown';
       const significant = mutations.some(m => {
         const target = m.target;
         if (target && target.nodeType === 1) {
           // Ignore mutations inside extension-protected elements
-          if (target.hasAttribute?.('data-sih-protected') || target.hasAttribute?.('data-sih-ignore') || target.id?.startsWith('sih-')) {
+          if (target.hasAttribute?.('data-sih-protected') || target.hasAttribute?.('data-sih-ignore') || target.id?.startsWith('sih-') || target.tagName?.toLowerCase() === 'canvas') {
             return false;
           }
         }
@@ -701,7 +703,7 @@
               if (node.nodeType === 1) {
                 const tag = node.tagName.toLowerCase();
                 // Filter out non-content structural nodes
-                if (['script', 'style', 'link', 'noscript'].includes(tag)) continue;
+                if (['script', 'style', 'link', 'noscript', 'canvas'].includes(tag)) continue;
                 if (node.hasAttribute?.('data-sih-protected') || node.hasAttribute?.('data-sih-ignore') || node.id?.startsWith('sih-')) continue;
                 return true;
               }
@@ -711,19 +713,30 @@
             }
             return false;
           };
-          return hasSignificantNode(m.addedNodes) || hasSignificantNode(m.removedNodes);
+          if (hasSignificantNode(m.addedNodes) || hasSignificantNode(m.removedNodes)) {
+            reason = 'childList_significant';
+            return true;
+          }
+          return false;
         }
         if (m.type === 'attributes') {
-          return ['value', 'type', 'name', 'placeholder', 'aria-label'].includes(m.attributeName);
+          if (['value', 'type', 'name', 'placeholder', 'aria-label'].includes(m.attributeName)) {
+            reason = `attributes_${m.attributeName}`;
+            return true;
+          }
+          return false;
         }
         return false;
       });
-      
+
+      console.info(`[SIH][MUTATION]\nmutationCount=${mutations.length}\ntriggerAccepted=${significant}\ndebounceState=${analysisState}\nreason=${reason}`);
+
       if (significant) {
+        console.info(`[SIH][ANALYSIS TRIGGER]\nreason=mutation`);
         requestAnalysis();
       }
     });
-    
+
     const targetNode = document.body || document.documentElement;
     if (targetNode) {
       mutationObserver.observe(targetNode, {
@@ -733,7 +746,7 @@
         attributeFilter: ['value', 'type', 'name', 'placeholder', 'aria-label']
       });
     }
-    
+
     // 2. SPA navigation listener via popstate
     popstateHandler = () => {
       requestAnalysis({ immediate: true });
@@ -748,10 +761,10 @@
         requestAnalysis({ immediate: true });
       }
     }, 2000);
-    
+
     window._sih_navCheck = navigationCheck;
   }
-  
+
   /**
    * Tear down observers and timers cleanly.
    */
@@ -772,7 +785,7 @@
     analysisState = 'IDLE';
     analysisPending = false;
   }
-  
+
   // ── Diagnostic / Test Exposure ──
   window.SIH_Scheduler = {
     getState: () => analysisState,
@@ -786,12 +799,12 @@
   };
 
   // ── Start ──
-  
+
   // Wait for document to be ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
   }
-  
+
 })();

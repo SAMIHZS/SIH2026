@@ -31,7 +31,7 @@
 (function() {
   'use strict';
 
-  const REQUEST_TIMEOUT_MS = 65000; // slightly longer than SW's 60 s worker timeout
+  const REQUEST_TIMEOUT_MS = 10000; // 10s timeout to fail-safe visual pipeline
 
   /* ── Check availability ────────────────────────────────────────────────── */
   function isAvailable() {
@@ -98,7 +98,17 @@
    */
   function analyze(_dataUrl, viewport, existingRects, generation) {
     if (!isAvailable()) {
-      return Promise.resolve({ sanitizedDataUrl: null, detections: [], backend: 'unavailable', timings: {} });
+      return Promise.resolve({
+        ok: false,
+        sanitizedDataUrl: null,
+        detections: [],
+        discarded: true,
+        backend: 'unavailable',
+        cvExecuted: false,
+        ocrExecuted: false,
+        timings: {},
+        error: 'Visual pipeline not available'
+      });
     }
 
     // Sanitize rects: strip raw values, keep only geometry + type
@@ -121,6 +131,8 @@
         reject(new Error('VISUAL_ANALYZE: background did not respond within timeout'));
       }, REQUEST_TIMEOUT_MS);
 
+      console.info(`[SIH][VISION TRACE 1]\nsending VISUAL_ANALYZE\ngeneration=${generation || 0}\ntype=VISUAL_ANALYZE\nhasScreenshot=false`);
+
       chrome.runtime.sendMessage({
         type: 'VISUAL_ANALYZE',
         viewport: viewport || { width: window.innerWidth, height: window.innerHeight },
@@ -128,18 +140,58 @@
         generation: generation || 0
       }, (response) => {
         clearTimeout(timer);
+        console.info(`[SIH][VISION TRACE 2]\nVISUAL_ANALYZE response received\nresponse exists = ${!!response}\nresponse keys = ${response ? Object.keys(response).join(',') : 'null'}`);
+
+        console.info('[SIH][VISUAL RESULT]', {
+          success: Boolean(response?.sanitizedDataUrl),
+          backend: response?.backend || 'unknown',
+          detectionCount: Array.isArray(response?.detections) ? response.detections.length : 0,
+          discarded: Boolean(response?.discarded),
+          error: response?.error || null
+        });
         if (chrome.runtime.lastError) {
+          console.error(`[SIH][VISION ERROR]\nstage=VISUAL_ANALYZE\nmessage=${chrome.runtime.lastError.message}`);
           // Background unavailable — fail gracefully
-          resolve({ sanitizedDataUrl: null, detections: [], backend: 'unavailable', timings: {}, error: chrome.runtime.lastError.message });
+          resolve({
+            ok: false,
+            sanitizedDataUrl: null,
+            detections: [],
+            discarded: true,
+            backend: 'unavailable',
+            cvExecuted: false,
+            ocrExecuted: false,
+            timings: {},
+            error: chrome.runtime.lastError.message
+          });
           return;
         }
         if (!response) {
-          resolve({ sanitizedDataUrl: null, detections: [], backend: 'unavailable', timings: {}, error: 'No response from background' });
+          resolve({
+            ok: false,
+            sanitizedDataUrl: null,
+            detections: [],
+            discarded: true,
+            backend: 'unavailable',
+            cvExecuted: false,
+            ocrExecuted: false,
+            timings: {},
+            error: 'No response from background'
+          });
           return;
         }
-        if (response.error && !response.sanitizedDataUrl) {
+        if (response.error || !response.sanitizedDataUrl || response.backend === 'unavailable' || !response.ok) {
           // Worker/capture error — fail-closed (no screenshot returned)
-          resolve({ sanitizedDataUrl: null, detections: response.detections || [], backend: response.backend || 'unavailable', timings: response.timings || {}, error: response.error });
+          resolve({
+            ok: false,
+            sanitizedDataUrl: null,
+            detections: response.detections || [],
+            discarded: Boolean(response.discarded),
+            backend: 'unavailable',
+            cvExecuted: Boolean(response.cvExecuted),
+            ocrExecuted: false,
+            timings: response.timings || {},
+            error: response.error || 'CV_UNAVAILABLE'
+          });
           return;
         }
         resolve(response);

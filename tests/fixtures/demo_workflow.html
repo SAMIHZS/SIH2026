@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SIH26171 Canonical Demo Workflow</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding: 32px;
+      max-width: 600px;
+      margin: 0 auto;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    h1 {
+      font-size: 20px;
+      margin-top: 0;
+      margin-bottom: 8px;
+    }
+    p {
+      color: #64748b;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .btn {
+      display: inline-block;
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #ffffff;
+      background-color: #2563eb;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 16px;
+    }
+    .btn:hover {
+      background-color: #1d4ed8;
+    }
+    .btn-reset {
+      background-color: #64748b;
+      margin-left: 8px;
+    }
+    .btn-reset:hover {
+      background-color: #475569;
+    }
+    .status-msg {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 15px;
+    }
+    .status-complete {
+      background-color: #dcfce7;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>SIH26171 Canonical Demo Workflow</h1>
+    <p>This page provides a deterministic 3-step browser workflow for demo verification: Start Workflow &rarr; Continue &rarr; Complete.</p>
+    
+    <div id="workflow-container">
+      <button id="btn-start" class="btn" onclick="onStartClicked()">Start Workflow</button>
+    </div>
+
+    <div style="margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 16px;">
+      <button id="btn-reset" class="btn btn-reset" onclick="resetWorkflow()">Reset Workflow</button>
+      <span id="reset-counter" style="margin-left: 12px; font-size: 12px; color: #94a3b8;">Resets: 0</span>
+    </div>
+  </div>
+
+  <script>
+    let resetCount = 0;
+    window.__workflowState = 'START';
+
+    function onStartClicked() {
+      window.__workflowState = 'CONTINUE';
+      document.getElementById('workflow-container').innerHTML =
+        '<button id="btn-continue" class="btn" onclick="onContinueClicked()">Continue</button>';
+    }
+
+    function onContinueClicked() {
+      window.__workflowState = 'COMPLETE';
+      document.getElementById('workflow-container').innerHTML =
+        '<button id="btn-complete" class="btn" onclick="onCompleteClicked()">Complete</button>';
+    }
+
+    function onCompleteClicked() {
+      window.__workflowState = 'DONE';
+      document.getElementById('workflow-container').innerHTML =
+        '<div id="workflow-completed-msg" class="status-msg status-complete">Workflow completed.</div>';
+    }
+
+    function resetWorkflow() {
+      resetCount++;
+      window.__workflowState = 'START';
+      document.getElementById('workflow-container').innerHTML =
+        '<button id="btn-start" class="btn" onclick="onStartClicked()">Start Workflow</button>';
+      document.getElementById('reset-counter').textContent = `Resets: ${resetCount}`;
+    }
+  </script>
+</body>
+</html>

@@ -14,6 +14,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const settingsBtn = document.getElementById('settingsBtn');
   const modelSelect = document.getElementById('sidebarModelSelect');
 
+  // Navigation & Views (Phase 13)
+  const tabChat = document.getElementById('tabChat');
+  const tabContext = document.getElementById('tabContext');
+  const tabPrivacy = document.getElementById('tabPrivacy');
+  const chatView = document.getElementById('chatView');
+  const contextView = document.getElementById('contextView');
+  const privacyView = document.getElementById('privacyView');
+  const chatPrivacyBadge = document.getElementById('chatPrivacyBadge');
+  const headerSelectedModel = document.getElementById('headerSelectedModel');
+
+  // Settings Modal (Phase 13)
+  const settingsModal = document.getElementById('settingsModal');
+  const closeSettingsModalBtn = document.getElementById('closeSettingsModalBtn');
+  const settingsModalBackdrop = document.getElementById('settingsModalBackdrop');
+  const openFullOptionsBtn = document.getElementById('openFullOptionsBtn');
+
   // Confirmation UI
   const confirmationDialog = document.getElementById('confirmationDialog');
   const confirmActionDesc = document.getElementById('confirmationActionDesc');
@@ -27,6 +43,33 @@ document.addEventListener('DOMContentLoaded', () => {
   const detailsToggle = document.getElementById('detailsToggle');
   const detailsDrawer = document.getElementById('detailsDrawer');
   const detailsList = document.getElementById('detailsList');
+
+  // Privacy Evidence Elements (Phase 3B/3C)
+  const privacyEvidenceSection = document.getElementById('privacyEvidenceSection');
+  const evidenceLoading = document.getElementById('evidenceLoading');
+  const evidenceEmpty = document.getElementById('evidenceEmpty');
+  const evidenceEmptyText = document.getElementById('evidenceEmptyText');
+  const evidenceEmptySubtext = document.getElementById('evidenceEmptySubtext');
+  const evidenceImageWrapper = document.getElementById('evidenceImageWrapper');
+  const sanitizedScreenshotImg = document.getElementById('sanitizedScreenshotImg');
+  const evidenceOverlayToggleRow = document.getElementById('evidenceOverlayToggleRow');
+  const overlayToggle = document.getElementById('overlayToggle');
+  const evidenceRedactionOverlay = document.getElementById('evidenceRedactionOverlay');
+  const metaBackend = document.getElementById('metaBackend');
+  const metaCv = document.getElementById('metaCv');
+  const metaOcr = document.getElementById('metaOcr');
+  const metaRegions = document.getElementById('metaRegions');
+  const metaProcessing = document.getElementById('metaProcessing');
+  const metaGeneration = document.getElementById('metaGeneration');
+  const metaProvider = document.getElementById('metaProvider');
+  const metaModel = document.getElementById('metaModel');
+  const metaVision = document.getElementById('metaVision');
+  const metaGrounded = document.getElementById('metaGrounded');
+  const metaActionTarget = document.getElementById('metaActionTarget');
+  const metaAgent = document.getElementById('metaAgent');
+  const badgeVisionAttached = document.getElementById('badgeVisionAttached');
+  const visionModelNotice = document.getElementById('visionModelNotice');
+  const evidenceStatusBadge = document.getElementById('evidenceStatusBadge');
 
   // Status Indicator
   const headerStatusDot = document.querySelector('.header-status-dot');
@@ -45,9 +88,20 @@ document.addEventListener('DOMContentLoaded', () => {
   let pendingConfirmationAction = null;
   let contextUpdatedAt = 0;
   let statusInterval = null;
+  let currentSidebarState = null;
+  let currentSidebarMessage = null;
+  let currentVisualState = null;
+  let currentModelConfig = null;
 
   // ── 0. Sidebar Status Machine ──
   function setSidebarState(state, message = '') {
+    if (state === currentSidebarState && message === currentSidebarMessage) {
+      return; // Debounce duplicate state transitions
+    }
+    logger.log('CTX STATE', `tab=${currentTabId} generation=${currentGeneration} old=${currentSidebarState} new=${state} msg="${message}"`);
+    currentSidebarState = state;
+    currentSidebarMessage = message;
+
     if (headerStatusLabel) {
       if (state === 'READY') {
         headerStatusDot.style.background = 'var(--success)';
@@ -55,20 +109,25 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!statusInterval) {
           statusInterval = setInterval(updateReadyTime, 10000);
         }
+        logger.log('CHAT', 'enabled');
       } else {
         clearInterval(statusInterval);
         statusInterval = null;
         headerStatusLabel.textContent = message;
+        headerStatusLabel.textContent = message;
         if (state === 'ERROR' || state === 'CONTEXT_UNAVAILABLE') {
           headerStatusDot.style.background = 'var(--danger)';
-        } else if (state === 'UPDATING_CONTEXT' || state === 'READING_PAGE' || state === 'WAITING_FOR_MODEL') {
+        } else if (state === 'UPDATING_CONTEXT' || state === 'READING_PAGE' || state === 'WAITING_FOR_MODEL' || state === 'THINKING' || state === 'VALIDATING' || state === 'EXECUTING') {
           headerStatusDot.style.background = 'var(--warning)';
+        } else if (state === 'PROTECTING') {
+          headerStatusDot.style.background = 'var(--accent)';
         } else {
           headerStatusDot.style.background = 'var(--accent)';
         }
       }
     }
     logger.log('SIDEBAR', `State transition: ${state}`, { message });
+    if (typeof logGlobalState === 'function') logGlobalState();
   }
 
   function updateReadyTime() {
@@ -86,57 +145,354 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── 1. Context Sync with Background ──
   function fetchLatestContext() {
+    logger.log('SIDEBAR', 'initialized'); // SIDEBAR_INIT
+    logger.log('CTX TRACE 01', 'sidebar -> GET_LATEST_CONTEXT');
     setSidebarState('INITIALIZING', 'Initializing...');
     chrome.runtime.sendMessage({ type: 'GET_LATEST_CONTEXT' }, (response) => {
       if (chrome.runtime.lastError || !response) {
         setSidebarState('CONTEXT_UNAVAILABLE', 'Context unavailable');
+        showVisualUnavailableState('Could not retrieve context from browser.');
         return;
       }
       if (response.tabId) currentTabId = response.tabId;
       if (response.generation) currentGeneration = response.generation;
       if (response.navigationIdentity) currentNavigationIdentity = response.navigationIdentity;
       if (response.sanitizedContext) {
-        updateContext(response.sanitizedContext, response.detectionCount, response.mapping);
+        updateContext(response.sanitizedContext, response.detectionCount, response.mapping, response.isValid);
+        if (response.isValid === false) {
+          setSidebarState('READING_PAGE', 'Refreshing protected context…');
+        }
       } else {
         setSidebarState('READING_PAGE', 'Reading page...');
+      }
+      if (response.visual) {
+        updateVisualEvidence(response.visual);
+      } else {
+        showVisualLoadingState();
       }
     });
   }
 
   chrome.runtime.onMessage.addListener((message) => {
+    logger.log('SIDEBAR', `MESSAGE_RECEIVED type=${message.type} tabId=${message.tabId} generation=${message.generation} currentTabId=${currentTabId}`);
+
+    if (message.type === 'VISUAL_CONTEXT_UPDATE') {
+      logger.log('SIDEBAR', `VISUAL_CONTEXT_UPDATE received tabId=${message.tabId} generation=${message.generation}`);
+      // Stale generation protection: discard if tab or generation doesn't match current active
+      if (message.tabId && currentTabId && message.tabId !== currentTabId) return;
+      if (typeof message.generation === 'number' && typeof currentGeneration === 'number') {
+        if (message.generation !== currentGeneration) {
+          logger.log('SIDEBAR', `Stale VISUAL_CONTEXT_UPDATE discarded (msg gen ${message.generation} !== current ${currentGeneration})`);
+          return;
+        }
+      }
+      updateVisualEvidence(message.visual);
+      return;
+    }
+
+    if (message.type === 'AGENT_STATUS_UPDATE') {
+      if (metaAgent) {
+        metaAgent.textContent = message.status || 'Idle';
+      }
+      return false;
+    }
+
+    if (message.type === 'MODEL_CONFIG_UPDATE') {
+      currentModelConfig = message.config;
+      updateProviderEvidence();
+      return;
+    }
+
     if (message.type === 'CONTEXT_INVALIDATED') {
+      const reason = message.reason || 'unknown';
+      const isNavigation = reason.includes('navigation') || reason.includes('tab_');
+
       currentTabId = message.tabId || null;
       currentGeneration = message.generation || null;
       currentNavigationIdentity = message.navigationIdentity || null;
-      currentContext = null;
-      currentDetectionCount = 0;
-      currentMapping = null;
       pendingRequestTabId = null;
       pendingRequestGeneration = null;
       cancelPendingConfirmation();
-      showLoadingState();
-      setSidebarState('READING_PAGE', 'Context invalidated. Reading new page...');
+
+      if (isNavigation) {
+        currentContext = null;
+        currentDetectionCount = 0;
+        currentMapping = null;
+        currentVisualState = null;
+        showLoadingState();
+        showVisualLoadingState();
+        setSidebarState('READING_PAGE', 'Page changed — refreshing protected context…');
+      } else {
+        // For in-place refreshes (e.g. manual refresh), keep existing context usable
+        // but indicate we are refreshing.
+        setSidebarState('READING_PAGE', 'Refreshing protected context…');
+      }
       return;
     }
     if (message.type === 'CONTEXT_UPDATE') {
-      if (message.tabId && currentTabId && message.tabId !== currentTabId) return;
+      logger.log('CTX TRACE 17', 'sidebar received CONTEXT_READY');
+      logger.log('SIDEBAR', `CONTEXT_READY_RECEIVED generation=${message.generation} currentGeneration=${currentGeneration} contextValid=${!!message.sanitizedContext}`);
       if (message.tabId) currentTabId = message.tabId;
       if (message.generation) currentGeneration = message.generation;
       if (message.navigationIdentity) currentNavigationIdentity = message.navigationIdentity;
       updateContext(message.sanitizedContext, message.detectionCount, message.mapping);
+      if (message.visual) {
+        updateVisualEvidence(message.visual);
+      }
     }
   });
 
-  function updateContext(context, detectionCount, mapping) {
+  // ── Visual Processing Evidence State Machine (Phase 3B/3C/3D) ──
+  function showVisualLoadingState() {
+    currentVisualState = null;
+    if (evidenceLoading) evidenceLoading.style.display = 'flex';
+    if (evidenceEmpty) evidenceEmpty.style.display = 'none';
+    if (evidenceImageWrapper) evidenceImageWrapper.style.display = 'none';
+    if (sanitizedScreenshotImg) sanitizedScreenshotImg.src = '';
+    if (evidenceOverlayToggleRow) evidenceOverlayToggleRow.style.display = 'none';
+    if (evidenceRedactionOverlay) {
+      evidenceRedactionOverlay.style.display = 'none';
+      evidenceRedactionOverlay.innerHTML = '';
+    }
+    if (metaGeneration) metaGeneration.textContent = currentGeneration ? `G${currentGeneration}` : '—';
+    if (evidenceStatusBadge) evidenceStatusBadge.textContent = 'Processing';
+    updateProviderEvidence();
+  }
+
+  function showVisualUnavailableState(reason = 'No sanitized image was produced.') {
+    currentVisualState = null;
+    if (evidenceLoading) evidenceLoading.style.display = 'none';
+    if (evidenceEmpty) evidenceEmpty.style.display = 'flex';
+    if (evidenceEmptyText) evidenceEmptyText.textContent = 'Visual sanitization unavailable';
+    if (evidenceEmptySubtext) evidenceEmptySubtext.textContent = reason;
+    if (evidenceImageWrapper) evidenceImageWrapper.style.display = 'none';
+    if (sanitizedScreenshotImg) sanitizedScreenshotImg.src = '';
+    if (evidenceOverlayToggleRow) evidenceOverlayToggleRow.style.display = 'none';
+    if (evidenceRedactionOverlay) {
+      evidenceRedactionOverlay.style.display = 'none';
+      evidenceRedactionOverlay.innerHTML = '';
+    }
+    if (metaBackend) metaBackend.textContent = 'unavailable';
+    if (metaCv) {
+      metaCv.textContent = 'Failed';
+      metaCv.className = 'meta-value meta-inactive';
+    }
+    if (metaOcr) {
+      metaOcr.textContent = 'Not executed';
+      metaOcr.className = 'meta-value meta-inactive';
+    }
+    if (metaRegions) metaRegions.textContent = '0 detected';
+    if (metaProcessing) metaProcessing.textContent = '—';
+    if (metaGeneration) metaGeneration.textContent = currentGeneration ? `G${currentGeneration}` : '—';
+    if (evidenceStatusBadge) evidenceStatusBadge.textContent = 'Unavailable';
+    updateProviderEvidence();
+  }
+
+  function updateVisualEvidence(visual) {
+    if (!visual) {
+      showVisualUnavailableState('No visual evidence available for current page.');
+      return;
+    }
+
+    if (visual.status === 'waiting') {
+      showVisualLoadingState();
+      return;
+    }
+
+    if (!visual.available || !visual.sanitizedDataUrl || visual.backend === 'unavailable') {
+      showVisualUnavailableState(visual.error ? `Error: ${visual.error}` : 'No sanitized image was produced.');
+      return;
+    }
+
+    // Success state: display sanitized image and metadata ONLY
+    currentVisualState = visual;
+
+    if (evidenceLoading) evidenceLoading.style.display = 'none';
+    if (evidenceEmpty) evidenceEmpty.style.display = 'none';
+    if (evidenceImageWrapper) evidenceImageWrapper.style.display = 'flex';
+
+    if (sanitizedScreenshotImg) {
+      sanitizedScreenshotImg.src = visual.sanitizedDataUrl;
+    }
+
+    if (evidenceStatusBadge) {
+      evidenceStatusBadge.textContent = 'Sanitized';
+    }
+
+    if (metaBackend) {
+      metaBackend.textContent = visual.backend === 'mediapipe' ? 'MediaPipe' : (visual.backend || 'MediaPipe');
+    }
+
+    if (metaCv) {
+      metaCv.textContent = visual.cvExecuted ? 'Executed' : 'Not executed';
+      metaCv.className = visual.cvExecuted ? 'meta-value meta-active' : 'meta-value meta-inactive';
+    }
+
+    if (metaOcr) {
+      if (visual.ocrExecuted) {
+        metaOcr.textContent = 'Executed';
+        metaOcr.className = 'meta-value meta-active';
+      } else if (visual.ocrAvailable === false) {
+        metaOcr.textContent = 'Unavailable';
+        metaOcr.className = 'meta-value meta-inactive';
+      } else {
+        metaOcr.textContent = 'Not executed';
+        metaOcr.className = 'meta-value meta-inactive';
+      }
+    }
+
+    if (metaRegions) {
+      const count = visual.detectionCount || (Array.isArray(visual.detections) ? visual.detections.length : 0);
+      metaRegions.textContent = `${count} detected`;
+    }
+
+    if (metaProcessing) {
+      metaProcessing.textContent = visual.processingMs ? `${visual.processingMs.toFixed(1)} ms` : '—';
+    }
+
+    if (metaGeneration) {
+      metaGeneration.textContent = visual.generation ? `G${visual.generation}` : (currentGeneration ? `G${currentGeneration}` : '—');
+    }
+
+    if (metaGrounded) {
+      const groundedCount = currentContext?.elements?.length || 0;
+      metaGrounded.textContent = `${groundedCount} grounded`;
+    }
+
+    // Optional Redaction Overlay Toggle
+    if (Array.isArray(visual.detections) && visual.detections.length > 0 && evidenceOverlayToggleRow) {
+      evidenceOverlayToggleRow.style.display = 'flex';
+      renderRedactionOverlay(visual.detections);
+    } else if (evidenceOverlayToggleRow) {
+      evidenceOverlayToggleRow.style.display = 'none';
+    }
+
+    updateProviderEvidence();
+    if (typeof refreshContextViewData === 'function') refreshContextViewData();
+    logger.log('SIDEBAR', `visual evidence updated: backend=${visual.backend} detections=${visual.detectionCount || 0} gen=${visual.generation}`);
+  }
+
+  function loadModelConfig() {
+    chrome.runtime.sendMessage({ type: 'MODEL_GET_CONFIG' }, (response) => {
+      if (chrome.runtime.lastError || !response) return;
+      currentModelConfig = response;
+      updateProviderEvidence();
+    });
+  }
+
+  function updateProviderEvidence() {
+    if (!metaProvider || !metaModel || !metaVision) return;
+    const providerId = currentModelConfig?.selectedProvider || '';
+    const modelId = currentModelConfig?.selectedModel || '';
+    const isConfigured = Boolean(providerId && currentModelConfig?.providers?.[providerId]?.configured);
+
+    if (!isConfigured) {
+      metaProvider.textContent = 'None (Mock)';
+      metaModel.textContent = 'Deterministic';
+      metaVision.textContent = 'Disabled';
+      metaVision.className = 'meta-value meta-inactive';
+      if (badgeVisionAttached) badgeVisionAttached.style.display = 'none';
+      if (visionModelNotice) visionModelNotice.style.display = 'none';
+      return;
+    }
+
+    const providerNames = { gemini: 'Gemini', groq: 'Groq', openrouter: 'OpenRouter', local: 'Local' };
+    metaProvider.textContent = providerNames[providerId] || providerId;
+    metaModel.textContent = modelId ? (modelId.includes('/') ? modelId.split('/').pop() : modelId) : 'default';
+
+    // Check vision capabilities
+    let isVision = false;
+    if (providerId === 'gemini') {
+      const lower = String(modelId).toLowerCase();
+      isVision = !lower.includes('embedding') && !lower.includes('aqa') && !lower.includes('text-only') && lower.includes('gemini');
+    }
+
+    if (headerSelectedModel) {
+      const displayModel = modelId ? (modelId.includes('/') ? modelId.split('/').pop() : modelId) : (isConfigured ? 'Gemini 2.5 Flash' : 'Deterministic');
+      headerSelectedModel.textContent = displayModel;
+    }
+
+    if (isVision) {
+      metaVision.textContent = 'Enabled';
+      metaVision.className = 'meta-value meta-active';
+      const hasSanitizedImage = Boolean(currentVisualState && currentVisualState.available && currentVisualState.sanitizedDataUrl);
+      if (hasSanitizedImage) {
+        if (badgeVisionAttached) badgeVisionAttached.style.display = 'inline-flex';
+        if (visionModelNotice) visionModelNotice.style.display = 'none';
+      } else {
+        if (badgeVisionAttached) badgeVisionAttached.style.display = 'none';
+        if (visionModelNotice) visionModelNotice.style.display = 'none';
+      }
+    } else {
+      metaVision.textContent = 'Not supported';
+      metaVision.className = 'meta-value meta-inactive';
+      if (badgeVisionAttached) badgeVisionAttached.style.display = 'none';
+      if (visionModelNotice) {
+        visionModelNotice.style.display = 'block';
+        visionModelNotice.textContent = 'Sanitized image not sent — selected model does not support vision.';
+      }
+    }
+  }
+
+  function renderRedactionOverlay(detections) {
+    if (!evidenceRedactionOverlay) return;
+    evidenceRedactionOverlay.innerHTML = '';
+    // Optional overlay boxes (geometry only, never PII values)
+    for (const d of detections) {
+      const box = d.rect || d.bbox || (typeof d.x === 'number' ? d : null);
+      if (!box || typeof box.x !== 'number') continue;
+      const el = document.createElement('div');
+      el.className = 'evidence-overlay-box';
+      el.title = `Redacted region: ${formatTypeName(d.type)}`;
+      // Position relative to image container if normalized or sized
+      el.style.left = `${box.x}px`;
+      el.style.top = `${box.y}px`;
+      el.style.width = `${box.width}px`;
+      el.style.height = `${box.height}px`;
+      evidenceRedactionOverlay.appendChild(el);
+    }
+  }
+
+  if (overlayToggle && evidenceRedactionOverlay) {
+    overlayToggle.addEventListener('change', () => {
+      evidenceRedactionOverlay.style.display = overlayToggle.checked ? 'block' : 'none';
+    });
+  }
+
+  function logGlobalState() {
+    logger.log('STATE', `
+tabId=${currentTabId}
+generation=${currentGeneration}
+textContext=${currentContext ? 'READY' : 'NULL'}
+contextValid=${!!currentContext}
+assistantState=${headerStatusLabel.textContent}
+chatEnabled=${sendBtn ? !sendBtn.disabled : 'unknown'}
+`);
+  }
+
+  function updateContext(context, detectionCount, mapping, isValid = true) {
+    logger.log('CTX TRACE 18', 'currentContext assigned');
     currentContext = context;
     currentDetectionCount = detectionCount || 0;
     currentMapping = mapping || null;
 
     if (refreshBtn) refreshBtn.classList.remove('spinning');
+    logGlobalState();
+    if (typeof refreshContextViewData === 'function') refreshContextViewData();
 
     if (context) {
       contextUpdatedAt = performance.now();
-      setSidebarState('READY');
+      if (isValid) {
+        setSidebarState('PROTECTING', 'Finalizing protection...');
+        setTimeout(() => {
+          logger.log('CTX TRACE 19', 'sidebar READY transition');
+          logger.log('SIDEBAR', 'SETTING_READY');
+          setSidebarState('READY');
+          logger.log('CTX TRACE 20', 'chat input enabled');
+          logger.log('CHAT', `INPUT_ENABLED reason=TEXT_CONTEXT_READY generation=${currentGeneration}`);
+          logger.log('SIDEBAR', 'READY_SET');
+        }, 300);
+      }
       renderSecurityContext();
     } else {
       setSidebarState('READING_PAGE', 'Reading page...');
@@ -230,18 +586,73 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ── Settings Button ──
+  // ── Settings Modal & Options ──
   if (settingsBtn) {
     settingsBtn.addEventListener('click', () => {
+      if (settingsModal) {
+        settingsModal.style.display = 'flex';
+      } else {
+        chrome.runtime.openOptionsPage();
+      }
+    });
+  }
+
+  if (closeSettingsModalBtn) {
+    closeSettingsModalBtn.addEventListener('click', () => {
+      if (settingsModal) settingsModal.style.display = 'none';
+    });
+  }
+
+  if (settingsModalBackdrop) {
+    settingsModalBackdrop.addEventListener('click', () => {
+      if (settingsModal) settingsModal.style.display = 'none';
+    });
+  }
+
+  if (openFullOptionsBtn) {
+    openFullOptionsBtn.addEventListener('click', () => {
       chrome.runtime.openOptionsPage();
     });
   }
+
+  // ── Tab Switching Navigation (Phase 13) ──
+  function switchTab(tabName) {
+    const tabMap = {
+      chat: { tab: tabChat, view: chatView },
+      context: { tab: tabContext, view: contextView },
+      privacy: { tab: tabPrivacy, view: privacyView }
+    };
+
+    for (const [name, entry] of Object.entries(tabMap)) {
+      if (!entry.tab || !entry.view) continue;
+      const isActive = (name === tabName);
+      entry.tab.classList.toggle('active', isActive);
+      entry.tab.setAttribute('aria-selected', String(isActive));
+      entry.view.style.display = isActive ? 'flex' : 'none';
+      entry.view.classList.toggle('active', isActive);
+    }
+
+    if (tabName === 'context') {
+      refreshContextViewData();
+    }
+  }
+
+  if (tabChat) tabChat.addEventListener('click', () => switchTab('chat'));
+  if (tabContext) tabContext.addEventListener('click', () => switchTab('context'));
+  if (tabPrivacy) tabPrivacy.addEventListener('click', () => switchTab('privacy'));
+  if (chatPrivacyBadge) chatPrivacyBadge.addEventListener('click', () => switchTab('privacy'));
 
   // ── Model Selector ──
   function loadModelConfig() {
     chrome.runtime.sendMessage({ type: 'MODEL_GET_CONFIG' }, (config) => {
       if (chrome.runtime.lastError || !config) return;
       if (!modelSelect) return;
+
+      if (headerSelectedModel) {
+        const modelId = config.selectedModel || '';
+        const displayModel = modelId ? (modelId.includes('/') ? modelId.split('/').pop() : modelId) : 'Gemini 2.5 Flash';
+        headerSelectedModel.textContent = displayModel;
+      }
 
       modelSelect.replaceChildren();
       let hasSelection = false;
@@ -361,6 +772,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setSidebarState('WAITING_FOR_MODEL', 'Waiting for model...');
     const loadingEl = appendLoadingIndicator();
 
+    logger.log('CHAT', `request generation=${requestGeneration} contextValid=${!!currentContext}`);
+
     try {
       const response = await sendToBackend(promptText, requestTabId, requestGeneration, requestNavIdentity);
       loadingEl.remove();
@@ -377,12 +790,16 @@ document.addEventListener('DOMContentLoaded', () => {
       setSidebarState('READY');
 
       if (!response) {
-        appendAssistantMessage('Unable to complete request: No response received.');
+        appendAssistantMessage('The AI provider could not process this request. Your page data remained protected locally.');
         return;
       }
 
       if (response.error) {
-        appendAssistantMessage(`Unable to process request: ${response.error}`);
+        if (response.errorCode === 'PROVIDER_UNAVAILABLE') {
+          appendAssistantMessage('Model configuration needs attention. Open Settings to review it.');
+        } else {
+          appendAssistantMessage('The AI provider could not process this request. Your page data remained protected locally.');
+        }
         return;
       }
 
@@ -487,6 +904,10 @@ document.addEventListener('DOMContentLoaded', () => {
   async function handleActionProposal(action, isMock = false, generation = null, navIdentity = null) {
     const risk = classifyActionRisk(action);
     logger.log('ACTION', `Action proposed: ${action.action}`, { risk, target: action.target });
+
+    if (metaActionTarget) {
+      metaActionTarget.textContent = action.target || action.elementId || 'None';
+    }
 
     if (risk === 'BLOCKED') {
       appendAssistantMessage(`Action blocked by security policy: cannot execute \`${action.action}\` on \`${action.target}\`.`);
@@ -673,7 +1094,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function applyScreenshotNote(enabled) {
     if (!screenshotNoteEl) return;
     if (enabled) {
-      screenshotNoteEl.textContent = 'Sanitized locally · faces blurred · PII masked';
+      screenshotNoteEl.textContent = '✓ Captured locally · Sensitive regions redacted · Only redacted imagery leaves device';
     } else {
       screenshotNoteEl.textContent = 'Screenshot excluded from AI context';
     }
@@ -694,6 +1115,85 @@ document.addEventListener('DOMContentLoaded', () => {
       screenshotToggleEl.setAttribute('aria-checked', String(enabled));
       chrome.storage.local.set({ [SCREENSHOT_KEY]: enabled });
       applyScreenshotNote(enabled);
+    });
+  }
+
+  // ── Refresh Context View Data (Phase 13 What AI Sees) ──
+  const viewContextBtn = document.getElementById('viewContextBtn');
+  const sanitizedContextModal = document.getElementById('sanitizedContextModal');
+  const closeContextModalBtn = document.getElementById('closeContextModalBtn');
+  const seePageUrl = document.getElementById('seePageUrl');
+  const seeVisualStatus = document.getElementById('seeVisualStatus');
+  const seeOcrStatus = document.getElementById('seeOcrStatus');
+  const seeDetectedCategories = document.getElementById('seeDetectedCategories');
+  const seeElementsCount = document.getElementById('seeElementsCount');
+  const seeModelInfo = document.getElementById('seeModelInfo');
+  const seeVisionStatus = document.getElementById('seeVisionStatus');
+
+  function refreshContextViewData() {
+    if (seePageUrl) {
+      seePageUrl.textContent = currentContext?.url || '—';
+    }
+    if (seeVisualStatus) {
+      const hasScreenshot = Boolean(currentVisualState?.sanitizedDataUrl || currentVisualState?.available);
+      seeVisualStatus.textContent = hasScreenshot ? 'Sanitized screenshot ✓' : 'Visual context omitted';
+    }
+    if (seeOcrStatus) {
+      const ocrRan = Boolean(currentContext?.ocrRan || currentVisualState?.ocrExecuted);
+      seeOcrStatus.textContent = ocrRan ? 'Executed ✓' : 'Not executed';
+    }
+    if (seeDetectedCategories) {
+      seeDetectedCategories.replaceChildren();
+      const types = new Set();
+      if (currentContext?.detections && Array.isArray(currentContext.detections)) {
+        for (const d of currentContext.detections) {
+          if (d.type) types.add(d.type.toUpperCase());
+        }
+      }
+      if (currentVisualState?.detections && Array.isArray(currentVisualState.detections)) {
+        for (const d of currentVisualState.detections) {
+          if (d.type) types.add(d.type.toUpperCase());
+        }
+      }
+      if (types.size === 0) {
+        const chip = document.createElement('span');
+        chip.className = 'status-chip status-chip-coral';
+        chip.textContent = '[NONE DETECTED]';
+        seeDetectedCategories.appendChild(chip);
+      } else {
+        for (const t of types) {
+          const chip = document.createElement('span');
+          chip.className = 'status-chip status-chip-coral';
+          chip.textContent = `[${t} REDACTED]`;
+          seeDetectedCategories.appendChild(chip);
+        }
+      }
+    }
+    if (seeElementsCount) {
+      const count = currentContext?.interactiveElements?.length || currentContext?.elements?.length || 0;
+      seeElementsCount.textContent = `${count} interactive elements`;
+    }
+    if (seeModelInfo) {
+      const prov = currentModelConfig?.selectedProvider || 'Gemini';
+      const mod = currentModelConfig?.selectedModel || 'gemini-2.5-flash';
+      const cleanMod = mod.includes('/') ? mod.split('/').pop() : mod;
+      seeModelInfo.textContent = `${prov} / ${cleanMod}`;
+    }
+    if (seeVisionStatus) {
+      const isVision = currentModelConfig?.capabilities?.vision !== false;
+      seeVisionStatus.textContent = isVision ? 'Vision: Enabled' : 'Vision: Disabled';
+    }
+  }
+
+  if (viewContextBtn) {
+    viewContextBtn.addEventListener('click', () => {
+      switchTab('context');
+      refreshContextViewData();
+    });
+  }
+  if (closeContextModalBtn) {
+    closeContextModalBtn.addEventListener('click', () => {
+      if (sanitizedContextModal) sanitizedContextModal.style.display = 'none';
     });
   }
 

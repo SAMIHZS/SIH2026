@@ -61,12 +61,23 @@
         .filter(
           m =>
             Array.isArray(m.supportedGenerationMethods) &&
-            m.supportedGenerationMethods.includes('generateContent')
+            m.supportedGenerationMethods.includes('generateContent') &&
+            !m.name.includes('embedding') &&
+            !m.name.includes('aqa') &&
+            !m.name.includes('imagen')
         )
-        .map(m => ({
-          id: m.name,                    // canonical: "models/gemini-1.5-flash"
-          name: m.displayName || m.name  // human-readable for UI
-        }));
+        .map(m => {
+          const isVision = m.name.includes('gemini') && !m.name.includes('embedding') && !m.name.includes('aqa') && !m.name.includes('text-only');
+          return {
+            id: m.name,                    // canonical: "models/gemini-1.5-flash"
+            name: m.displayName || m.name, // human-readable for UI
+            capabilities: {
+              text: true,
+              vision: isVision,
+              tools: false
+            }
+          };
+        });
     }
 
     /**

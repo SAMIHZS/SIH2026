@@ -1,137 +1,91 @@
 /**
  * Offscreen Document Controller — SIH26171 Phase 2 Architecture
  *
- * MV3 Architectural Role:
- *   Chrome MV3 extension service workers cannot call `new Worker()`.
- *   The offscreen document exists exclusively with reason ['WORKERS']
- *   to own the dedicated visual worker (`visualWorker.js`) under the extension's
- *   origin, allowing module workers and dynamic import() of MediaPipe vision_bundle.mjs.
+ * Runs entirely in the offscreen document to process visual tasks,
+ * avoiding the need for a Dedicated Worker because the Offscreen Document
+ * is already an isolated background context that doesn't block the main thread.
  *
- * This script is intentionally minimal:
- * - Owns the dedicated visual Web Worker
- * - Handles worker lifecycle (creation, error recovery, messaging)
+ * This script:
  * - Listens for OFFSCREEN_ANALYZE messages from background.js
+ * - Runs visualWorker.js logic (MediaPipe Face Detection) natively
  * - Returns sanitized screenshot + detections (fail-closed)
  */
 
 'use strict';
 
-let visualWorker = null;
-let visualWorkerReady = false;
-const pendingRequests = new Map();
+import { handleAnalyze } from './vision/visualWorker.js';
+
 let requestCounter = 0;
-const WORKER_TIMEOUT_MS = 60000;
-
-function getWorkerUrl() {
-  try {
-    return chrome.runtime.getURL('vision/visualWorker.js');
-  } catch (e) {
-    return null;
-  }
-}
-
-function ensureWorker() {
-  if (visualWorker && visualWorkerReady) return true;
-
-  const url = getWorkerUrl();
-  if (!url) {
-    console.warn('[SIH][Offscreen] Cannot resolve visualWorker URL');
-    return false;
-  }
-
-  try {
-    visualWorker = new Worker(url, { type: 'module' });
-    visualWorker.onmessage = handleWorkerMessage;
-    visualWorker.onerror = handleWorkerError;
-    visualWorkerReady = true;
-    console.info('[SIH][Offscreen] Dedicated visual worker spawned successfully:', url);
-    return true;
-  } catch (err) {
-    console.error('[SIH][Offscreen] Failed to spawn module worker:', err.message);
-    visualWorker = null;
-    visualWorkerReady = false;
-    return false;
-  }
-}
-
-function handleWorkerMessage(event) {
-  const msg = event.data;
-  if (!msg || !msg.type) return;
-
-  if (msg.type === 'DIAGNOSTIC') {
-    // Forward diagnostic back to background / caller tab
-    chrome.runtime.sendMessage({
-      type: 'OFFSCREEN_DIAGNOSTIC',
-      requestId: msg.id,
-      stage: msg.stage,
-      data: msg.data
-    }).catch(() => {});
-    return;
-  }
-
-  const pending = pendingRequests.get(msg.id);
-  if (!pending) return;
-
-  clearTimeout(pending.timeout);
-  pendingRequests.delete(msg.id);
-
-  if (msg.type === 'RESULT') {
-    pending.resolve(msg);
-  } else {
-    pending.reject(new Error(`Unexpected worker message type: ${msg.type}`));
-  }
-}
-
-function handleWorkerError(err) {
-  console.error('[SIH][Offscreen] Dedicated visual worker error:', err?.message || err);
-  // Fail-closed: reject all pending requests without leaking data
-  for (const [id, pending] of pendingRequests) {
-    clearTimeout(pending.timeout);
-    pending.reject(new Error('Visual worker crashed in offscreen document'));
-  }
-  pendingRequests.clear();
-  visualWorker = null;
-  visualWorkerReady = false;
-}
 
 /**
- * Execute visual analysis on offscreen dedicated worker.
+ * Execute visual analysis natively in the offscreen document.
  */
-function analyzeInWorker(message) {
-  if (!ensureWorker()) {
-    return Promise.resolve({
-      detections: [],
-      sanitizedDataUrl: null,
-      backend: 'unavailable',
-      timings: {},
-      error: 'Offscreen visual worker unavailable'
-    });
-  }
-
+async function analyzeNative(message) {
   const id = `offscreen_req_${++requestCounter}_${Date.now()}`;
-  const mediapipeWasmRoot = chrome.runtime.getURL('vendor/mediapipe/wasm');
+  const mediapipeWasmRoot = chrome.runtime.getURL('vendor/mediapipe/wasm/');
   const mediapipeModelPath = chrome.runtime.getURL('vendor/mediapipe/models/blaze_face_short_range.tflite');
   const mediapipeBundleUrl = chrome.runtime.getURL('vendor/mediapipe/vision_bundle.mjs');
+  const tesseractRoot = chrome.runtime.getURL('vendor/tesseract/');
 
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingRequests.delete(id);
-      reject(new Error('Offscreen visual worker timed out'));
-    }, WORKER_TIMEOUT_MS);
+  const workerMsg = {
+    id,
+    dataUrl: message.dataUrl,
+    viewport: message.viewport,
+    rects: message.safeRects || [],
+    mediapipeWasmRoot,
+    mediapipeModelPath,
+    mediapipeBundleUrl,
+    tesseractRoot
+  };
 
-    pendingRequests.set(id, { resolve, reject, timeout });
+  const requestDiagnostic = (reqId, stage, data) => {
+    chrome.runtime.sendMessage({
+      type: 'OFFSCREEN_DIAGNOSTIC',
+      requestId: reqId,
+      stage: stage,
+      data: data,
+      tabId: message.tabId,
+      generation: message.generation
+    }).catch(() => {});
+  };
 
-    visualWorker.postMessage({
-      type: 'ANALYZE',
-      id,
-      dataUrl: message.dataUrl,
-      viewport: message.viewport,
-      rects: message.safeRects || [],
-      mediapipeWasmRoot,
-      mediapipeModelPath,
-      mediapipeBundleUrl
-    });
-  });
+  try {
+    const result = await handleAnalyze(workerMsg, requestDiagnostic);
+    if (!result || !result.ok || !result.sanitizedDataUrl || result.backend === 'unavailable') {
+      return {
+        ok: false,
+        detections: [],
+        sanitizedDataUrl: null,
+        discarded: true,
+        backend: 'unavailable',
+        cvExecuted: false,
+        ocrExecuted: false,
+        ocrAvailable: false,
+        ocrText: '',
+        timings: result?.timings || {},
+        error: result?.error || 'CV_UNAVAILABLE'
+      };
+    }
+    return result;
+  } catch (err) {
+    console.error('[SIH][Offscreen] Visual analysis crashed:', err.message);
+    return {
+      ok: false,
+      detections: [],
+      sanitizedDataUrl: null,
+      discarded: true,
+      backend: 'unavailable',
+      cvExecuted: false,
+      ocrExecuted: false,
+      ocrAvailable: false,
+      ocrText: '',
+      timings: {},
+      error: err.message || 'CV_UNAVAILABLE'
+    };
+  } finally {
+    message.dataUrl = null;
+    workerMsg.dataUrl = null;
+  }
 }
 
 // ── Message Listener ──
@@ -140,28 +94,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   switch (message.type) {
     case 'OFFSCREEN_PING':
-      sendResponse({ ok: true, ready: visualWorkerReady });
+      sendResponse({ ok: true, ready: true });
       return false;
 
     case 'OFFSCREEN_ANALYZE': {
-      analyzeInWorker(message)
+      console.info(`[SIH][OFFSCREEN 01] VISUAL_ANALYZE received`);
+      console.info(`[SIH][VISION TRACE 8]\nOFFSCREEN_ANALYZE received\nkeys=${Object.keys(message).join(',')}`);
+      analyzeNative(message)
         .then((result) => {
+          console.info('[SIH][VISION] offscreen response ready');
           sendResponse({
-            ok: true,
+            ok: Boolean(result?.ok && result?.sanitizedDataUrl),
             result
           });
         })
         .catch((err) => {
-          // Fail-closed: never return unsanitized screenshot
+          console.error(`[SIH][OFFSCREEN ERROR]\nerror.name=${err.name}\nerror.message=${err.message}\nstack=${err.stack}`);
           sendResponse({
             ok: false,
             result: {
+              ok: false,
               detections: [],
               sanitizedDataUrl: null,
+              discarded: true,
               backend: 'unavailable',
-              error: err.message
+              cvExecuted: false,
+              ocrExecuted: false,
+              error: err.message || 'OFFSCREEN_ERROR'
             }
           });
+        })
+        .finally(() => {
+          if (message) message.dataUrl = null;
         });
       return true; // async sendResponse
     }
@@ -171,5 +135,4 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Eagerly initialize worker on offscreen document boot
-ensureWorker();
+console.info('[SIH][VISION] offscreen ready (native mode)');

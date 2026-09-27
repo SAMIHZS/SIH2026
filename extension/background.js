@@ -5,7 +5,8 @@ importScripts(
   'providers/openRouterProvider.js',
   'providers/geminiProvider.js',
   'providers/localProvider.js',
-  'modelManager.js'
+  'modelManager.js',
+  'agentCoordinator.js'
 );
 
 /**
@@ -62,10 +63,13 @@ const modelManager = new self.SIH_ModelManager.ModelManager();
  */
 function getOrCreateTabState(tabId, url = '') {
   if (!tabPerceptionState.has(tabId)) {
+    const oldGen = 0;
     globalGenerationCounter++;
+    const newGen = globalGenerationCounter;
+    const txId = performance.now();
     tabPerceptionState.set(tabId, {
       tabId,
-      generation: globalGenerationCounter,
+      generation: newGen,
       navigationIdentity: url || '',
       sanitizedContext: null,
       screenshot: null,
@@ -77,6 +81,15 @@ function getOrCreateTabState(tabId, url = '') {
       updatedAt: performance.now(),
       isValid: false
     });
+    console.info(
+      `[SIH][GENERATION TRACE]\n` +
+      `tabId=${tabId}\n` +
+      `oldGeneration=${oldGen}\n` +
+      `newGeneration=${newGen}\n` +
+      `reason=initial_state\n` +
+      `navigationIdentity=${url || ''}\n` +
+      `transactionId=${txId}`
+    );
   }
   return tabPerceptionState.get(tabId);
 }
@@ -86,10 +99,13 @@ function getOrCreateTabState(tabId, url = '') {
  * This is a PRIVACY GUARANTEE: invalidation happens synchronously
  * before any new work begins.
  */
-function invalidateTabContext(tabId, reason = 'unknown', newUrl = '') {
+function invalidateTabContext(tabId, reason = 'unknown', newUrl = '', transactionId = null) {
   const existing = tabPerceptionState.get(tabId);
+  const oldGen = existing ? existing.generation : 0;
   globalGenerationCounter++;
   const nextGen = globalGenerationCounter;
+  const navIdentity = newUrl || (existing ? existing.navigationIdentity : '');
+  const txId = transactionId !== null ? transactionId : performance.now();
 
   if (existing) {
     existing.isValid = false;
@@ -120,7 +136,20 @@ function invalidateTabContext(tabId, reason = 'unknown', newUrl = '') {
     });
   }
 
+  console.info(
+    `[SIH][GENERATION TRACE]\n` +
+    `tabId=${tabId}\n` +
+    `oldGeneration=${oldGen}\n` +
+    `newGeneration=${nextGen}\n` +
+    `reason=${reason}\n` +
+    `navigationIdentity=${navIdentity}\n` +
+    `transactionId=${txId}`
+  );
+
   self.SIH_Logger.log('PRIVACY', `CONTEXT INVALIDATED Tab: ${tabId} Generation: ${nextGen} Reason: ${reason}`);
+  if (self.SIH_AgentCoordinator) {
+    self.SIH_AgentCoordinator.handleNavigation(tabId, nextGen);
+  }
   return nextGen;
 }
 
@@ -177,7 +206,7 @@ async function ensureOffscreenDocument() {
  * Route visual analysis to the Offscreen Document.
  * Fail-closed: returns sanitizedDataUrl: null if offscreen document fails.
  */
-async function dispatchToOffscreen(dataUrl, viewport, safeRects) {
+async function dispatchToOffscreen(dataUrl, viewport, safeRects, tabId, generation) {
   await ensureOffscreenDocument();
 
   return new Promise((resolve) => {
@@ -186,24 +215,45 @@ async function dispatchToOffscreen(dataUrl, viewport, safeRects) {
       type: 'OFFSCREEN_ANALYZE',
       dataUrl,
       viewport,
-      safeRects
+      safeRects,
+      tabId,
+      generation
     }, (response) => {
+      console.info(`[SIH][VISION TRACE DISPATCH] lastError=`, chrome.runtime.lastError);
+      console.info('[SIH][VISUAL RESULT]', {
+        success: Boolean(response?.result?.sanitizedDataUrl),
+        backend: response?.result?.backend || 'unknown',
+        detectionCount: Array.isArray(response?.result?.detections)
+          ? response.result.detections.length
+          : 0,
+        discarded: Boolean(response?.result?.discarded),
+        error: response?.result?.error || (chrome.runtime.lastError ? chrome.runtime.lastError.message : null)
+      });
+
       if (chrome.runtime.lastError) {
         console.warn('[SIH][SW] Offscreen communication error:', chrome.runtime.lastError.message);
         resolve({
+          ok: false,
           detections: [],
           sanitizedDataUrl: null,
+          discarded: true,
           backend: 'unavailable',
+          cvExecuted: false,
+          ocrExecuted: false,
           error: chrome.runtime.lastError.message
         });
         return;
       }
-      if (!response || !response.ok || !response.result) {
-        console.warn('[SIH][SW] Offscreen returned empty or error response');
+      if (!response || !response.ok || !response.result || response.result.backend === 'unavailable' || !response.result.sanitizedDataUrl) {
+        console.warn('[SIH][SW] Offscreen returned empty or error response:', response?.result?.error || 'unspecified');
         resolve({
+          ok: false,
           detections: [],
           sanitizedDataUrl: null,
+          discarded: true,
           backend: 'unavailable',
+          cvExecuted: false,
+          ocrExecuted: false,
           error: response?.result?.error || 'Offscreen analysis failed'
         });
         return;
@@ -214,6 +264,95 @@ async function dispatchToOffscreen(dataUrl, viewport, safeRects) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
+/* Context Refresh Coordinator                                                   */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+const refreshLocks = new Map(); // tabId -> { refreshing: boolean, pendingRefresh: boolean, pendingReason: string, pendingUrl: string }
+
+function requestContextRefresh(tabId, reason, url = '') {
+  if (!tabId) return;
+
+  let currentGen = tabPerceptionState.has(tabId) ? tabPerceptionState.get(tabId).generation : null;
+  console.info(`[SIH][REFRESH CALL]\ntabId=${tabId}\nreason=${reason}\ncurrentGeneration=${currentGen}\ncaller/source=requestContextRefresh\nrefreshLockState=${refreshLocks.has(tabId) ? refreshLocks.get(tabId).refreshing : false}\ntimestamp=${Date.now()}`);
+
+  const lock = refreshLocks.get(tabId) || { refreshing: false, pendingRefresh: false, pendingReason: '', pendingUrl: '' };
+  if (!refreshLocks.has(tabId)) refreshLocks.set(tabId, lock);
+
+  if (lock.refreshing) {
+    // Coalesce sidebar_init: if a refresh is already happening, we don't need another one
+    // just because the sidebar opened.
+    if (reason === 'sidebar_init') {
+      self.SIH_Logger.log('CONTEXT', `refresh coalesced (ignored) tab=${tabId} reason=${reason}`);
+      return;
+    }
+
+    lock.pendingRefresh = true;
+    lock.pendingReason = reason;
+    lock.pendingUrl = url || lock.pendingUrl;
+    self.SIH_Logger.log('CONTEXT', `refresh coalesced (queued) tab=${tabId} reason=${reason}`);
+    return;
+  }
+
+  lock.refreshing = true;
+  self.SIH_Logger.log('CTX TRACE 04', 'refresh lock acquired');
+  self.SIH_Logger.log('CONTEXT', `REFRESH_LOCK_ACQUIRED tab=${tabId} reason=${reason}`);
+
+  const timeoutId = setTimeout(() => {
+    if (lock.refreshing) {
+      console.warn(`[SIH][CONTEXT] REFRESH_TIMEOUT for tab=${tabId}`);
+      lock.refreshing = false;
+      if (lock.pendingRefresh) {
+        const nextReason = lock.pendingReason;
+        const nextUrl = lock.pendingUrl;
+        lock.pendingRefresh = false;
+        lock.pendingReason = '';
+        lock.pendingUrl = '';
+        requestContextRefresh(tabId, nextReason, nextUrl);
+      }
+    }
+  }, 5000);
+
+  executeContextRefresh(tabId, reason, url).finally(() => {
+    clearTimeout(timeoutId);
+    if (!lock.refreshing) return; // already timed out
+    lock.refreshing = false;
+    self.SIH_Logger.log('CONTEXT', `REFRESH_LOCK_RELEASED tab=${tabId}`);
+
+    if (lock.pendingRefresh) {
+      const nextReason = lock.pendingReason;
+      const nextUrl = lock.pendingUrl;
+      lock.pendingRefresh = false;
+      lock.pendingReason = '';
+      lock.pendingUrl = '';
+      requestContextRefresh(tabId, nextReason, nextUrl);
+    }
+  });
+}
+
+async function executeContextRefresh(tabId, reason, url = '') {
+  const t0 = performance.now();
+  const newGen = invalidateTabContext(tabId, reason, url, t0);
+  const currentState = tabPerceptionState.get(tabId);
+
+  self.SIH_Logger.log('CTX TRACE 03', 'refresh requested');
+  self.SIH_Logger.log('CONTEXT', `refresh requested reason=${reason} tab=${tabId} generation=${newGen}`);
+  self.SIH_Logger.log('CONTEXT', `refresh started tab=${tabId} generation=${newGen}`);
+  self.SIH_Logger.log('CONTEXT', `build started generation=${newGen}`);
+
+  broadcastToExtensionPages({
+    type: 'CONTEXT_INVALIDATED',
+    tabId,
+    generation: newGen,
+    navigationIdentity: currentState.navigationIdentity,
+    reason,
+    t0
+  });
+
+  await fetchAndBroadcastTabContext(tabId, newGen, t0);
+  self.SIH_Logger.log('CONTEXT', `refresh completed tab=${tabId} generation=${newGen}`);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
 /* Tab Lifecycle — Immediate Invalidation                                      */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
@@ -221,138 +360,228 @@ async function dispatchToOffscreen(dataUrl, viewport, safeRects) {
  * chrome.tabs.onActivated: fires when user switches to a different tab.
  * Invalidation happens FIRST before any perception begins for the new tab.
  */
-chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
-  const t0 = performance.now();
+chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
   const prevTabId = activeTabId;
   activeTabId = tabId;
-
-  // 1. Invalidate previous tab context if one was active
   if (prevTabId && prevTabId !== tabId) {
-    invalidateTabContext(prevTabId, 'tab_deactivated');
+    self.SIH_Logger.log('LIFECYCLE', `tab deactivated tab=${prevTabId}`);
+  }
+  self.SIH_Logger.log('LIFECYCLE', `tab activated tab=${tabId}`);
+
+  let currentTabUrl = '';
+  try {
+    const tabInfo = await chrome.tabs.get(tabId);
+    currentTabUrl = tabInfo.url || '';
+  } catch (e) {}
+
+  const existingState = tabPerceptionState.get(tabId);
+  if (
+    existingState &&
+    existingState.isValid &&
+    existingState.sanitizedContext &&
+    (!currentTabUrl || currentTabUrl === existingState.navigationIdentity)
+  ) {
+    // Returning to an existing tab that has not navigated does NOT create a new generation
+    self.SIH_Logger.log('CONTEXT', `tab activated cache hit tab=${tabId} generation=${existingState.generation}`);
+    broadcastToExtensionPages({
+      type: 'CONTEXT_UPDATE',
+      tabId,
+      generation: existingState.generation,
+      navigationIdentity: existingState.navigationIdentity,
+      sanitizedContext: existingState.sanitizedContext,
+      screenshot: existingState.screenshot,
+      detectionCount: existingState.detectionCount,
+      mapping: existingState.mapping,
+      metrics: existingState.metrics,
+      gateDecision: existingState.gateDecision,
+      visual: existingState.screenshot || null
+    });
+    broadcastToExtensionPages({
+      type: 'VISUAL_CONTEXT_UPDATE',
+      tabId,
+      generation: existingState.generation,
+      visual: existingState.screenshot || {
+        available: false,
+        sanitizedDataUrl: null,
+        status: 'waiting',
+        message: 'Waiting for local visual processing...'
+      }
+    });
+    return;
   }
 
-  // 2. Increment & initialize new tab generation
-  const newGen = invalidateTabContext(tabId, 'tab_activated');
-  const currentState = tabPerceptionState.get(tabId);
-
-  self.SIH_Logger.log('LIFECYCLE', `tabs.onActivated tabId=${tabId} prevTabId=${prevTabId} gen=${newGen}`);
-
-  // 3. Immediately broadcast CONTEXT_INVALIDATED to sidebar/popup
-  broadcastToExtensionPages({
-    type: 'CONTEXT_INVALIDATED',
-    tabId,
-    prevTabId,
-    generation: newGen,
-    navigationIdentity: currentState.navigationIdentity,
-    t0
-  });
-
-  // 4. Query fresh tab context (lightweight fetch)
-  fetchAndBroadcastTabContext(tabId, newGen, t0);
+  requestContextRefresh(tabId, 'tab_activated');
 });
 
 /**
  * chrome.tabs.onUpdated: fires for navigation events.
  * Same-tab navigation immediately invalidates previous generation.
  */
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (tabId !== activeTabId) return;
 
-  // If URL changes or page begins loading / completes
-  if (changeInfo.url || changeInfo.status === 'loading') {
-    const t0 = performance.now();
-    const newGen = invalidateTabContext(tabId, 'navigation_start', changeInfo.url || tab.url);
-    const currentState = tabPerceptionState.get(tabId);
+  const currentTabState = tabPerceptionState.get(tabId);
+  const targetUrl = changeInfo.url || tab.url || '';
 
-    broadcastToExtensionPages({
-      type: 'CONTEXT_INVALIDATED',
-      tabId,
-      url: changeInfo.url || tab.url,
-      generation: newGen,
-      navigationIdentity: currentState.navigationIdentity,
-      reason: 'navigation',
-      t0
-    });
+  // 1. Navigation detected: status is loading or URL changed
+  if (changeInfo.url || changeInfo.status === 'loading') {
+    // Only invalidate if new navigation (URL differs or state was valid from previous page)
+    if (!currentTabState || (targetUrl && currentTabState.navigationIdentity !== targetUrl) || currentTabState.isValid) {
+      const t0 = performance.now();
+      const newGen = invalidateTabContext(tabId, 'navigation', targetUrl, t0);
+      broadcastToExtensionPages({
+        type: 'CONTEXT_INVALIDATED',
+        tabId,
+        generation: newGen,
+        navigationIdentity: targetUrl,
+        reason: 'navigation',
+        t0
+      });
+      broadcastToExtensionPages({
+        type: 'VISUAL_CONTEXT_UPDATE',
+        tabId,
+        generation: newGen,
+        visual: {
+          available: false,
+          sanitizedDataUrl: null,
+          status: 'waiting',
+          message: 'Waiting for local visual processing...'
+        }
+      });
+    }
     return;
   }
 
+  // 2. Navigation completed: status is complete
   if (changeInfo.status === 'complete') {
-    const t0 = performance.now();
     const currentState = tabPerceptionState.get(tabId);
-    const gen = currentState ? currentState.generation : invalidateTabContext(tabId, 'navigation_complete', tab.url);
+    if (!currentState || (tab.url && currentState.navigationIdentity !== tab.url)) {
+      requestContextRefresh(tabId, 'navigation_complete', tab.url);
+      return;
+    }
 
-    // Fetch fresh context with small delay for content script initialization
-    setTimeout(() => {
-      if (tabId === activeTabId && currentState && currentState.generation === gen) {
-        fetchAndBroadcastTabContext(tabId, gen, t0);
-      }
-    }, 350);
+    if (!currentState.isValid) {
+      const t0 = performance.now();
+      await fetchAndBroadcastTabContext(tabId, currentState.generation, t0);
+    }
   }
 });
 
 /**
- * Fetch lightweight context from the tab's content script and broadcast if valid.
+ * Fetch lightweight context from the tab's content script and wait for CONTEXT_READY.
  */
-async function fetchAndBroadcastTabContext(tabId, generation, t0) {
-  try {
-    const res = await new Promise((resolve) => {
-      chrome.tabs.sendMessage(tabId, { type: 'GET_CONTEXT', generation: generation }, (response) => {
-        if (chrome.runtime.lastError) {
-          resolve(null);
-        } else {
-          resolve(response);
-        }
-      });
-    });
+function fetchAndBroadcastTabContext(tabId, generation, t0) {
+  return new Promise(async (resolve) => {
+    let settled = false;
 
-    // Stale guard: verify tab is still active and generation matches
-    const currentState = tabPerceptionState.get(tabId);
-    if (
-      tabId !== activeTabId ||
-      !currentState ||
-      currentState.generation !== generation
-    ) {
-      console.info(`[PRIVACY STATE] STALE RESULT DISCARDED Tab: ${tabId} Generation: ${generation} Current generation: ${currentState?.generation} Reason: navigation/tab changed`);
+    // Check if URL is supported
+    let tabUrl = '';
+    try {
+      const tabInfo = await chrome.tabs.get(tabId);
+      tabUrl = tabInfo.url || tabInfo.pendingUrl || '';
+      const isRestricted = tabUrl.startsWith('chrome://') || tabUrl.startsWith('chrome-extension://') || tabUrl.startsWith('edge://') || tabUrl.startsWith('about:');
+      if (isRestricted) {
+        console.info(`[SIH][CTX TX] URL restricted, skipping content script injection: ${tabUrl}`);
+        resolve(false);
+        return;
+      }
+    } catch (e) {
+      console.warn(`[SIH][CTX TX] Failed to get tab info: ${e.message}`);
+    }
+
+    // PING with Bounded Retries
+    const delays = [0, 100, 300, 700];
+    let pingSuccess = false;
+    for (let i = 0; i < delays.length; i++) {
+      if (i > 0) {
+        await new Promise(r => setTimeout(r, delays[i]));
+      }
+      try {
+        console.info(`[SIH][CTX HANDSHAKE] PING_SEND attempt ${i+1}`);
+        const pong = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+        if (pong && pong.ok) {
+          console.info(`[SIH][CTX HANDSHAKE] PONG_RECEIVED`);
+          pingSuccess = true;
+          break;
+        }
+      } catch (e) {
+        console.info(`[SIH][CTX HANDSHAKE] PING_FAILED: ${e.message}`);
+      }
+    }
+
+    if (!pingSuccess) {
+      console.error(`[SIH][CTX] CONTENT_UNAVAILABLE\ntabId=${tabId}\ngeneration=${generation}\nreason=Max retries reached without PONG`);
+      broadcastToExtensionPages({
+        type: 'CONTEXT_UPDATE',
+        tabId,
+        generation,
+        navigationIdentity: tabPerceptionState.get(tabId)?.navigationIdentity,
+        sanitizedContext: null,
+        detectionCount: 0,
+        mapping: []
+      });
+      resolve(false);
       return;
     }
 
-    if (res && res.sanitizedContext) {
-      currentState.sanitizedContext = res.sanitizedContext;
-      currentState.mapping = res.mapping || [];
-      currentState.detectionCount = res.detections ? res.detections.length : 0;
-      currentState.metrics = res.metrics || null;
-      currentState.gateDecision = res.gateDecision || null;
-      currentState.updatedAt = performance.now();
-      currentState.isValid = true;
+    console.info(`[SIH][CTX TX] GET_CONTEXT_SEND\ntabId=${tabId}\ngeneration=${generation}\ntransactionId=${t0}`);
+    self.SIH_Logger.log('CTX TRACE 05', 'GET_CONTEXT sent to content');
 
-      broadcastToExtensionPages({
-        type: 'CONTEXT_UPDATE',
-        tabId,
-        generation,
-        navigationIdentity: currentState.navigationIdentity,
-        sanitizedContext: res.sanitizedContext,
-        detectionCount: currentState.detectionCount,
-        mapping: currentState.mapping,
-        metrics: currentState.metrics,
-        gateDecision: currentState.gateDecision,
-        timings: { activationToContextMs: performance.now() - t0 }
-      });
-    } else {
-      // Empty/loading state
-      broadcastToExtensionPages({
-        type: 'CONTEXT_UPDATE',
-        tabId,
-        generation,
-        navigationIdentity: currentState.navigationIdentity,
-        sanitizedContext: null,
-        detectionCount: 0,
-        mapping: [],
-        timings: { activationToContextMs: performance.now() - t0 }
-      });
-    }
-  } catch (err) {
-    console.warn('[SIH] Failed to fetch tab context:', err.message);
-  }
+    // Register a global resolver so CONTEXT_READY can unlock this transaction
+    if (!self._contextResolvers) self._contextResolvers = new Map();
+    const resolverKey = `${tabId}_${generation}`;
+
+    const timeoutId = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        self._contextResolvers.delete(resolverKey);
+        self.SIH_Logger.log('CONTEXT', `GET_CONTEXT timed out tab=${tabId} generation=${generation}`);
+        console.error(`[SIH][CTX TX] TIMEOUT tabId=${tabId} generation=${generation}`);
+        broadcastToExtensionPages({
+          type: 'CONTEXT_UPDATE',
+          tabId,
+          generation,
+          navigationIdentity: tabPerceptionState.get(tabId)?.navigationIdentity,
+          sanitizedContext: null,
+          detectionCount: 0,
+          mapping: []
+        });
+        resolve(false);
+      }
+    }, 5000);
+
+    self._contextResolvers.set(resolverKey, (success) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      self._contextResolvers.delete(resolverKey);
+      resolve(success);
+    });
+
+    chrome.tabs.sendMessage(tabId, { type: 'GET_CONTEXT', generation: generation }, (response) => {
+      // We only care about immediate failures here. Success is handled by CONTEXT_READY.
+      if (chrome.runtime.lastError) {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeoutId);
+          self._contextResolvers.delete(resolverKey);
+          self.SIH_Logger.log('CONTEXT', `GET_CONTEXT failed tab=${tabId} generation=${generation} error="${chrome.runtime.lastError.message}"`);
+          console.error(`[SIH][CTX TX] GET_CONTEXT_FAILED\ntabId=${tabId}\ngeneration=${generation}\nerror="${chrome.runtime.lastError.message}"`);
+
+          broadcastToExtensionPages({
+            type: 'CONTEXT_UPDATE',
+            tabId,
+            generation,
+            navigationIdentity: tabPerceptionState.get(tabId)?.navigationIdentity,
+            sanitizedContext: null,
+            detectionCount: 0,
+            mapping: []
+          });
+          resolve(false);
+        }
+      }
+    });
+  });
 }
 
 // Track initial active tab
@@ -364,6 +593,39 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
   }
 });
 
+/**
+ * Tab Close Cleanup (Phase 3B/3C):
+ * Synchronously purge tab perception state, sanitized screenshot,
+ * and refresh locks when a tab closes. No persistent storage is used.
+ */
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabPerceptionState.has(tabId)) {
+    const state = tabPerceptionState.get(tabId);
+    if (state) {
+      state.screenshot = null;
+      state.sanitizedContext = null;
+      state.detections = [];
+      state.mapping = [];
+    }
+    tabPerceptionState.delete(tabId);
+  }
+  refreshLocks.delete(tabId);
+  if (self._contextResolvers) {
+    for (const key of self._contextResolvers.keys()) {
+      if (key.startsWith(`${tabId}_`)) {
+        self._contextResolvers.delete(key);
+      }
+    }
+  }
+  if (activeTabId === tabId) {
+    activeTabId = null;
+  }
+  if (self.SIH_AgentCoordinator) {
+    self.SIH_AgentCoordinator.handleTabClosed(tabId);
+  }
+  console.info(`[SIH][TAB CLEANUP] tabId=${tabId} state and screenshot removed from memory`);
+});
+
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* Message Routing & Stale-Result Guards                                       */
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -371,13 +633,17 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) return false;
 
-  // Handle diagnostics from Offscreen Document
+  // Handle diagnostics from Offscreen Document (scoped to originating tab/generation/request)
   if (message.type === 'OFFSCREEN_DIAGNOSTIC') {
-    if (activeTabId) {
-      chrome.tabs.sendMessage(activeTabId, {
+    const targetTabId = message.tabId || activeTabId;
+    if (targetTabId) {
+      chrome.tabs.sendMessage(targetTabId, {
         type: 'VISUAL_DIAGNOSTIC',
         stage: message.stage,
-        data: message.data
+        data: message.data,
+        tabId: targetTabId,
+        generation: message.generation,
+        requestId: message.requestId
       }).catch(() => {});
     }
     return false;
@@ -390,50 +656,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: false, error: 'No active tab' });
         return false;
       }
-      const t0 = performance.now();
-      const currentState = tabPerceptionState.get(tabId);
-      const newGen = invalidateTabContext(tabId, 'manual_refresh', currentState?.navigationIdentity);
-      
-      broadcastToExtensionPages({
-        type: 'CONTEXT_INVALIDATED',
-        tabId,
-        generation: newGen,
-        navigationIdentity: currentState?.navigationIdentity,
-        reason: 'manual_refresh',
-        t0
-      });
-      
-      // Request new context with forceRefresh
-      setTimeout(() => {
-        if (tabId === activeTabId) {
-          chrome.tabs.sendMessage(tabId, { type: 'GET_CONTEXT', generation: newGen, forceRefresh: true }, (response) => {
-            if (chrome.runtime.lastError) {
-              console.warn('[SIH] Failed to fetch refreshed tab context:', chrome.runtime.lastError.message);
-            } else if (response && response.sanitizedContext) {
-              // Simulate CONTEXT_READY
-              const state = tabPerceptionState.get(tabId);
-              if (state && state.generation === newGen) {
-                state.sanitizedContext = response.sanitizedContext;
-                state.mapping = response.mapping || [];
-                state.detectionCount = response.detections ? response.detections.length : 0;
-                state.isValid = true;
-                
-                broadcastToExtensionPages({
-                  type: 'CONTEXT_UPDATE',
-                  tabId,
-                  generation: newGen,
-                  navigationIdentity: state.navigationIdentity,
-                  sanitizedContext: state.sanitizedContext,
-                  detectionCount: state.detectionCount,
-                  mapping: state.mapping
-                });
-              }
-            }
-          });
-        }
-      }, 50);
-      
-      sendResponse({ ok: true, newGeneration: newGen });
+      requestContextRefresh(tabId, 'manual_refresh');
+      sendResponse({ ok: true });
       return false;
     }
 
@@ -447,6 +671,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const currentTabState = tabPerceptionState.get(callerTabId);
       const incomingGeneration = message.generation;
       const incomingIdentity = message.url || '';
+
+      self.SIH_Logger.log('CTX TRACE 14', 'background received CONTEXT_READY');
+      self.SIH_Logger.log('CONTEXT', `CONTEXT_READY_RECEIVED tabId=${callerTabId} generation=${incomingGeneration} currentGeneration=${currentTabState?.generation} contextValid=${!!message.sanitizedContext}`);
 
       // STALE ASYNC RESULT GUARD
       if (
@@ -465,11 +692,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       currentTabState.detectionCount = message.detectionCount || 0;
       currentTabState.metrics = message.metrics || null;
       currentTabState.gateDecision = message.gateDecision || null;
-      currentTabState.screenshot = message.sanitizedContext?.screenshot || null;
+      if (message.sanitizedContext?.screenshot) {
+        if (!currentTabState.screenshot) {
+          currentTabState.screenshot = {
+            sanitizedDataUrl: message.sanitizedContext.screenshot,
+            generation: incomingGeneration,
+            tabId: callerTabId,
+            backend: 'mediapipe',
+            cvExecuted: true,
+            ocrExecuted: false,
+            detections: [],
+            detectionCount: 0,
+            sanitized: true
+          };
+        }
+      }
       currentTabState.updatedAt = performance.now();
       currentTabState.isValid = true;
 
+      self.SIH_Logger.log('CTX TRACE 15', 'context stored');
+      self.SIH_Logger.log('CONTEXT', `CONTEXT_STORED tabId=${callerTabId} generation=${incomingGeneration}`);
+
       // Broadcast update to sidebar
+      self.SIH_Logger.log('CTX TRACE 16', 'sidebar context broadcast');
+      self.SIH_Logger.log('CONTEXT', `SIDEBAR_CONTEXT_BROADCAST tabId=${callerTabId} generation=${incomingGeneration}`);
       broadcastToExtensionPages({
         type: 'CONTEXT_UPDATE',
         tabId: callerTabId,
@@ -479,17 +725,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         detectionCount: message.detectionCount,
         mapping: message.mapping,
         metrics: message.metrics || null,
-        gateDecision: message.gateDecision || null
+        gateDecision: message.gateDecision || null,
+        visual: currentTabState.screenshot || null
       });
+
+      // Signal completion to fetchAndBroadcastTabContext
+      if (self._contextResolvers) {
+        const resolverKey = `${callerTabId}_${incomingGeneration}`;
+        const resolver = self._contextResolvers.get(resolverKey);
+        if (resolver) {
+          resolver(true);
+        }
+      }
 
       sendResponse({ ok: true });
       return false;
     }
 
     case 'GET_LATEST_CONTEXT': {
+      self.SIH_Logger.log('CTX TRACE 02', 'background received GET_LATEST_CONTEXT');
       const tabId = activeTabId;
       const state = tabId && tabPerceptionState.get(tabId);
-      if (state && state.isValid && state.sanitizedContext) {
+
+      // If we already have a context for this tab, just return it so the UI doesn't break,
+      // even if it's currently marked invalid (refreshing).
+      if (state && state.sanitizedContext) {
+        self.SIH_Logger.log('CONTEXT', `cache hit tab=${tabId} generation=${state.generation}`);
         sendResponse({
           sanitizedContext: state.sanitizedContext,
           detectionCount: state.detectionCount,
@@ -498,47 +759,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           gateDecision: state.gateDecision,
           tabId,
           generation: state.generation,
-          navigationIdentity: state.navigationIdentity
+          navigationIdentity: state.navigationIdentity,
+          isValid: state.isValid,
+          visual: state.screenshot || null
         });
         return false;
       }
 
-      // Fetch on demand from active tab
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const activeTab = tabs && tabs[0];
-        if (!activeTab) { sendResponse({ sanitizedContext: null }); return; }
-        const tid = activeTab.id;
-        const curState = getOrCreateTabState(tid, activeTab.url);
-        chrome.tabs.sendMessage(tid, { type: 'GET_CONTEXT', generation: curState.generation }, (res) => {
-          if (chrome.runtime.lastError || !res) {
-            sendResponse({ sanitizedContext: null, tabId: tid, generation: curState.generation });
-            return;
-          }
-          if (res.sanitizedContext) {
-            curState.sanitizedContext = res.sanitizedContext;
-            curState.mapping = res.mapping || [];
-            curState.detectionCount = res.detections ? res.detections.length : 0;
-            curState.metrics = res.metrics;
-            curState.gateDecision = res.gateDecision;
-            curState.updatedAt = performance.now();
-            curState.isValid = true;
-          }
-          sendResponse({
-            sanitizedContext: res.sanitizedContext || null,
-            detectionCount: res.detections ? res.detections.length : 0,
-            mapping: res.mapping || [],
-            metrics: res.metrics,
-            gateDecision: res.gateDecision,
-            tabId: tid,
-            generation: curState.generation,
-            navigationIdentity: curState.navigationIdentity
-          });
-        });
+      self.SIH_Logger.log('CONTEXT', `cache miss tab=${tabId}`);
+      // Only request a refresh if no refresh is currently running for this tab
+      // (This prevents sidebar_init from queuing up repeated refreshes)
+      if (tabId) {
+        const lock = refreshLocks.get(tabId);
+        if (!lock || (!lock.refreshing && !lock.pendingRefresh)) {
+          requestContextRefresh(tabId, 'sidebar_init');
+        } else {
+          console.info(`[SIH][CONTEXT] GET_LATEST_CONTEXT: refresh already in progress for tab ${tabId}`);
+        }
+      }
+
+      sendResponse({
+        sanitizedContext: null,
+        tabId,
+        generation: state ? state.generation : 0,
+        navigationIdentity: state ? state.navigationIdentity : ''
       });
-      return true; // async
+      return false;
     }
 
     case 'VISUAL_ANALYZE': {
+      console.info(`[SIH][VISION BG 01] VISUAL_ANALYZE received tabId=${sender.tab?.id || 'none'} generation=${message.generation || 0} hasScreenshot=${message.hasScreenshot} requestedCV=${message.requestedCV} requestedOCR=${message.requestedOCR}`);
+      console.info(`[SIH][VISION TRACE 3]\nbackground received VISUAL_ANALYZE\ngeneration=${message.generation || 0}\ntabId=${sender.tab?.id || 'none'}\nkeys=${Object.keys(message).join(',')}`);
       const callerTabId = sender.tab?.id;
       if (!callerTabId) {
         sendResponse({ error: 'VISUAL_ANALYZE must originate from a tab', sanitizedDataUrl: null });
@@ -568,12 +819,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       (async () => {
         try {
           // 1. Capture viewport screenshot
+          console.info(`[SIH][VISION BG 02] screenshot capture starting`);
+          console.info(`[SIH][VISION TRACE 4]\nbackground starting visual pipeline`);
+          console.info(`[SIH][VISION TRACE 5]\ncalling captureVisibleTab`);
           const t_captureStart = performance.now();
           let screenshot;
           try {
             screenshot = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
+            console.info(`[SIH][VISION BG 03] screenshot captured width=unknown height=unknown byte/data URL presence=${!!screenshot}`);
+            console.info(`[SIH][VISION TRACE 6]\ncaptureVisibleTab succeeded\nlength=${screenshot.length}`);
           } catch (captureErr) {
-            console.warn(`[SIH][SW] captureVisibleTab failed: ${captureErr.message}`);
+            console.warn(`[SIH][VISION BG ERROR]\nerror.name=${captureErr.name}\nerror.message=${captureErr.message}\nstack=${captureErr.stack}`);
+            console.warn(`[SIH][VISION ERROR]\nstage=captureVisibleTab\nmessage=${captureErr.message}`);
             sendResponse({
               error: `Screenshot capture failed: ${captureErr.message}`,
               sanitizedDataUrl: null,
@@ -586,7 +843,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const t_captureMs = performance.now() - t_captureStart;
 
           if (!screenshot) {
-            sendResponse({ error: 'captureVisibleTab returned empty', sanitizedDataUrl: null, detections: [] });
+            sendResponse({
+              ok: false,
+              error: 'captureVisibleTab returned empty',
+              sanitizedDataUrl: null,
+              detections: [],
+              discarded: true,
+              backend: 'unavailable',
+              cvExecuted: false,
+              ocrExecuted: false,
+              generation: requestedGeneration
+            });
             return;
           }
 
@@ -596,13 +863,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             currentTabState.generation !== requestedGeneration
           ) {
             console.info(`[PRIVACY STATE] STALE RESULT DISCARDED Tab: ${callerTabId} Generation: ${requestedGeneration} Current generation: ${currentTabState.generation} Reason: navigation/tab changed`);
-            sendResponse({ error: 'Stale analysis discarded', sanitizedDataUrl: null, detections: [], discarded: true });
+            screenshot = null; // discard
+            sendResponse({
+              ok: false,
+              error: 'Stale analysis discarded',
+              sanitizedDataUrl: null,
+              detections: [],
+              discarded: true,
+              backend: 'unavailable',
+              cvExecuted: false,
+              ocrExecuted: false,
+              generation: requestedGeneration
+            });
             return;
           }
 
           // 2. Dispatch to Offscreen Document -> Dedicated Visual Worker
+          console.info(`[SIH][VISION BG 04] dispatching to offscreen`);
+          console.info(`[SIH][VISION TRACE 7]\nsending OFFSCREEN_ANALYZE`);
           const t_workerStart = performance.now();
-          const workerResult = await dispatchToOffscreen(screenshot, message.viewport || {}, message.safeRects || []);
+          const workerResult = await dispatchToOffscreen(screenshot, message.viewport || {}, message.safeRects || [], callerTabId, requestedGeneration);
+          screenshot = null; // Discard raw screenshot from memory immediately
+          console.info(`[SIH][VISION BG 05] offscreen response received`);
           const t_workerMs = performance.now() - t_workerStart;
           const totalMs = performance.now() - t_analyzeStart;
 
@@ -612,12 +894,93 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             currentTabState.generation !== requestedGeneration
           ) {
             console.info(`[PRIVACY STATE] STALE RESULT DISCARDED Tab: ${callerTabId} Generation: ${requestedGeneration} Current generation: ${currentTabState.generation} Reason: navigation/tab changed`);
-            sendResponse({ error: 'Stale analysis discarded', sanitizedDataUrl: null, detections: [], discarded: true });
+            sendResponse({
+              ok: false,
+              error: 'Stale analysis discarded',
+              sanitizedDataUrl: null,
+              detections: [],
+              discarded: true,
+              backend: 'unavailable',
+              cvExecuted: false,
+              ocrExecuted: false,
+              generation: requestedGeneration
+            });
             return;
           }
 
-          // Cache sanitized screenshot in state for this generation
-          currentTabState.screenshot = workerResult.sanitizedDataUrl;
+          // Check if visual processing failed closed or unavailable
+          if (!workerResult || !workerResult.ok || !workerResult.sanitizedDataUrl || workerResult.backend === 'unavailable') {
+            currentTabState.screenshot = null;
+            const visualFailure = {
+              available: false,
+              sanitizedDataUrl: null,
+              generation: requestedGeneration,
+              tabId: callerTabId,
+              backend: 'unavailable',
+              cvExecuted: false,
+              ocrExecuted: false,
+              detections: [],
+              detectionCount: 0,
+              processingMs: totalMs,
+              sanitized: false,
+              error: workerResult?.error || 'CV_UNAVAILABLE'
+            };
+            broadcastToExtensionPages({
+              type: 'VISUAL_CONTEXT_UPDATE',
+              tabId: callerTabId,
+              generation: requestedGeneration,
+              visual: visualFailure
+            });
+            sendResponse({
+              ok: false,
+              sanitizedDataUrl: null,
+              detections: [],
+              discarded: true,
+              backend: 'unavailable',
+              cvExecuted: false,
+              ocrExecuted: false,
+              captureMs: t_captureMs,
+              workerMs: t_workerMs,
+              totalMs,
+              generation: requestedGeneration,
+              error: workerResult?.error || 'CV_UNAVAILABLE'
+            });
+            return;
+          }
+
+          // Cache sanitized screenshot in state for this generation ONLY
+          const visualEvidence = {
+            available: true,
+            sanitizedDataUrl: workerResult.sanitizedDataUrl,
+            generation: requestedGeneration,
+            tabId: callerTabId,
+            backend: workerResult.backend || 'mediapipe',
+            cvExecuted: true,
+            ocrExecuted: Boolean(workerResult.ocrExecuted),
+            ocrAvailable: Boolean(workerResult.ocrAvailable),
+            ocrText: workerResult.ocrText || '',
+            detections: (workerResult.detections || []).map(d => ({
+              type: d.type || 'sensitive',
+              source: d.source || 'mediapipe',
+              x: d.x,
+              y: d.y,
+              width: d.width,
+              height: d.height,
+              confidence: d.confidence
+            })),
+            detectionCount: workerResult.detections?.length || 0,
+            processingMs: totalMs,
+            sanitized: true
+          };
+
+          currentTabState.screenshot = visualEvidence;
+
+          broadcastToExtensionPages({
+            type: 'VISUAL_CONTEXT_UPDATE',
+            tabId: callerTabId,
+            generation: requestedGeneration,
+            visual: visualEvidence
+          });
 
           console.group('[SIH][SW] VISUAL_ANALYZE completed via Offscreen Document');
           console.info('Tab:', callerTabId, '| Generation:', requestedGeneration);
@@ -628,16 +991,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           console.info('[TIMING] Total:', `${totalMs.toFixed(1)}ms`);
           console.groupEnd();
 
+          console.info(`[SIH][VISION BG 06] returning visual response`);
+          console.info(`[SIH][VISION TRACE 15]\nbackground returning visual result\nsuccess=${workerResult.backend !== 'unavailable'}\nfacesDetected=${workerResult.detections?.length || 0}\nfacesMasked=${workerResult.detections?.length || 0}\nscreenshotSanitized=${!!workerResult.sanitizedDataUrl}`);
+
           sendResponse({
-            ...workerResult,
+            ok: true,
+            sanitizedDataUrl: workerResult.sanitizedDataUrl,
+            detections: workerResult.detections || [],
+            discarded: false,
+            backend: workerResult.backend || 'mediapipe',
+            cvExecuted: true,
+            ocrExecuted: Boolean(workerResult.ocrExecuted),
+            ocrAvailable: Boolean(workerResult.ocrAvailable),
+            ocrText: workerResult.ocrText || '',
+            ocrDebug: workerResult.ocrDebug || null,
             captureMs: t_captureMs,
             workerMs: t_workerMs,
             totalMs,
-            generation: requestedGeneration
+            generation: requestedGeneration,
+            error: null
           });
         } catch (outerErr) {
+          console.error(`[SIH][VISION BG ERROR]\nerror.name=${outerErr.name}\nerror.message=${outerErr.message}\nstack=${outerErr.stack}`);
           console.error('[SIH][SW] VISUAL_ANALYZE error:', outerErr.message);
-          sendResponse({ error: outerErr.message, sanitizedDataUrl: null, detections: [] });
+          currentTabState.screenshot = null;
+          broadcastToExtensionPages({
+            type: 'VISUAL_CONTEXT_UPDATE',
+            tabId: callerTabId,
+            generation: requestedGeneration,
+            visual: {
+              available: false,
+              sanitizedDataUrl: null,
+              generation: requestedGeneration,
+              tabId: callerTabId,
+              backend: 'unavailable',
+              cvExecuted: false,
+              ocrExecuted: false,
+              detections: [],
+              detectionCount: 0,
+              sanitized: false,
+              error: outerErr.message || 'VISUAL_PIPELINE_ERROR'
+            }
+          });
+          sendResponse({
+            ok: false,
+            sanitizedDataUrl: null,
+            detections: [],
+            discarded: true,
+            backend: 'unavailable',
+            cvExecuted: false,
+            ocrExecuted: false,
+            error: outerErr.message || 'VISUAL_PIPELINE_ERROR',
+            generation: requestedGeneration
+          });
         }
       })();
       return true; // async
@@ -646,6 +1052,113 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'SEND_TO_BACKEND': {
       handleBackendRequest(message, sender).then(sendResponse);
       return true;
+    }
+
+    case 'START_AGENT_TRANSACTION': {
+      const tabId = message.tabId || activeTabId;
+      const currentTabState = tabPerceptionState.get(tabId);
+      const generation = message.generation || currentTabState?.generation || 1;
+      const goal = message.goal || '';
+
+      if (!self.SIH_AgentCoordinator) {
+        sendResponse({ success: false, error: 'AGENT_COORDINATOR_UNAVAILABLE' });
+        return false;
+      }
+
+      const txResult = self.SIH_AgentCoordinator.createTransaction({
+        tabId,
+        generation,
+        requestId: message.requestId,
+        goal,
+        maxSteps: message.maxSteps
+      });
+
+      if (!txResult.success) {
+        sendResponse(txResult);
+        return false;
+      }
+
+      const tx = txResult.transaction;
+      sendResponse({ success: true, transactionId: tx.transactionId, maxSteps: tx.maxSteps });
+
+      // Run multi-step agent transaction loop
+      self.SIH_AgentCoordinator.runTransactionLoop(tx.transactionId, {
+        observePage: async (tId, gen) => {
+          const freshState = tabPerceptionState.get(tId);
+          const invResp = await new Promise((res) => {
+            chrome.tabs.sendMessage(tId, { type: 'QUERY_GROUNDING', query: 'inventory', generation: gen, tabId: tId }, (r) => res(r || {}));
+          });
+          return {
+            tabId: tId,
+            generation: freshState?.generation || gen,
+            url: freshState?.navigationIdentity || '',
+            elementCount: invResp.inventory?.length || 0,
+            inventory: invResp.inventory || [],
+            sanitizedContext: freshState?.sanitizedContext
+          };
+        },
+        planStep: async (context, userGoal, history) => {
+          if (typeof message.mockPlanStep === 'function') {
+            return message.mockPlanStep(context, userGoal, history);
+          }
+          const prompt = `Goal: ${userGoal}`;
+          return handleBackendRequest({
+            tabId,
+            generation: context.generation,
+            userMessage: prompt,
+            sanitizedContext: context.sanitizedContext
+          }, sender);
+        },
+        groundAction: (action, gen, tId) => {
+          // Pass-through to content script validation/grounding during EXECUTE_ACTION
+          return { success: true, elementId: action.elementId || action.target };
+        },
+        validateAction: (action, gen, tId) => {
+          return { allowed: true };
+        },
+        executeAction: async (action, gen) => {
+          return new Promise((res) => {
+            chrome.tabs.sendMessage(tabId, { type: 'EXECUTE_ACTION', action, tabId }, (r) => res(r || { success: false, error: 'No response' }));
+          });
+        },
+        settleWait: (ms) => new Promise(r => setTimeout(r, ms)),
+        onStatusUpdate: (status) => {
+          broadcastToExtensionPages({ type: 'AGENT_STATUS_UPDATE', status, tabId });
+        }
+      }).catch(err => {
+        console.error('[SIH][AGENT] Loop failed with unhandled exception:', err);
+      });
+
+      return false;
+    }
+
+    case 'GET_AGENT_STATUS': {
+      const tabId = message.tabId || activeTabId;
+      if (!self.SIH_AgentCoordinator) {
+        sendResponse({ status: 'Agent: Idle' });
+        return false;
+      }
+      const tx = self.SIH_AgentCoordinator.getActiveTransaction(tabId);
+      sendResponse({
+        status: self.SIH_AgentCoordinator.getSidebarStatus(tx),
+        transaction: tx ? {
+          transactionId: tx.transactionId,
+          stepIndex: tx.stepIndex,
+          maxSteps: tx.maxSteps,
+          status: tx.status
+        } : null
+      });
+      return false;
+    }
+
+    case 'CANCEL_AGENT_TRANSACTION': {
+      if (!self.SIH_AgentCoordinator) {
+        sendResponse({ success: false, error: 'AGENT_COORDINATOR_UNAVAILABLE' });
+        return false;
+      }
+      const success = self.SIH_AgentCoordinator.cancelTransaction(message.transactionId, message.reason);
+      sendResponse({ success });
+      return false;
     }
 
     case 'MODEL_GET_CONFIG':
@@ -685,10 +1198,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       modelManager.testConnection(message.providerId)
         .then(sendResponse)
         .catch(error => sendResponse({ available: false, error: error.message }));
-      return true;
-
-    case 'CAPTURE_SCREENSHOT':
-      handleScreenshotCapture(message, sender).then(sendResponse);
       return true;
 
     case 'GET_PRIVACY_STATE':
@@ -773,27 +1282,83 @@ async function handleBackendRequest(message, sender) {
     };
   }
 
-  // Gate 5: Screenshot ownership & sanitization assertion
-  //
-  // The context may be from the lightweight (pre-enrichment) publish that has no screenshot yet,
-  // but the tab state may now have a generation-verified sanitized screenshot from async enrichment.
-  // If so, attach it to the provider call — it is already generation-verified by VISUAL_ANALYZE.
-  //
-  // If the context already carries a screenshot, verify it matches the tab state's screenshot
-  // (ensures no cross-generation or external screenshot can be injected).
-  if (sanitizedContext.screenshot) {
-    if (typeof sanitizedContext.screenshot !== 'string' || !sanitizedContext.screenshot.startsWith('data:image/')) {
-      return failClosed('Screenshot in context is not a valid local data URL');
+  const modelConfig = await modelManager.getConfig();
+  const selectedProviderId = modelConfig.selectedProvider;
+  const selectedProvider = modelConfig.providers[selectedProviderId];
+
+  // Gate 5: Check Local provider availability explicitly
+  if (selectedProviderId === 'local') {
+    return {
+      type: 'text',
+      message: 'Local browser inference is not available in this build.',
+      error: 'PROVIDER_UNAVAILABLE',
+      errorCode: 'PROVIDER_UNAVAILABLE',
+      isMock: false
+    };
+  }
+
+  const isVisionCapable = modelManager.isVisionCapable(selectedProviderId, modelConfig.selectedModel);
+  const visual = activeState.screenshot;
+
+  // Gate 6: Hard Privacy Gate for Visual / Image Context
+  if (!isVisionCapable) {
+    // Model is text-only: NEVER send screenshot or visual artifact
+    delete sanitizedContext.screenshot;
+    delete sanitizedContext.screenshotDataUrl;
+    delete sanitizedContext.visualProvenance;
+  } else {
+    // Model is vision-capable:
+    // If a screenshot is present or requested, verify ALL conditions:
+    if (sanitizedContext.screenshot || visual) {
+      // Condition D & G: Visual artifact exists and has verified sanitized status
+      if (!visual || visual.sanitized !== true) {
+        throw new Error('UNTRUSTED_VISUAL_ARTIFACT');
+      }
+      // Condition E: Belongs to same tab
+      if (visual.tabId !== activeTabId || visual.tabId !== requestTabId) {
+        return failClosed('Screenshot tab mismatch — cross-tab leakage blocked');
+      }
+      // Condition F: Generation match
+      if (visual.generation !== activeState.generation || (requestGeneration !== undefined && visual.generation !== requestGeneration)) {
+        return failClosed('Screenshot generation mismatch — stale generation blocked');
+      }
+      // Condition H: Valid PNG data URL
+      if (!visual.sanitizedDataUrl || typeof visual.sanitizedDataUrl !== 'string' || !visual.sanitizedDataUrl.startsWith('data:image/png;base64,')) {
+        return {
+          type: 'text',
+          message: 'Sanitized visual context is unavailable for this page.',
+          error: 'SANITIZED_VISUAL_CONTEXT_UNAVAILABLE',
+          isMock: false
+        };
+      }
+      // Condition I: Not marked unavailable
+      if (visual.available === false || visual.backend === 'unavailable') {
+        return {
+          type: 'text',
+          message: 'Sanitized visual context is unavailable for this page.',
+          error: 'SANITIZED_VISUAL_CONTEXT_UNAVAILABLE',
+          isMock: false
+        };
+      }
+
+      // Attach strictly sanitized image with provenance
+      sanitizedContext.screenshot = visual.sanitizedDataUrl;
+      sanitizedContext.visualProvenance = {
+        sanitized: true,
+        tabId: activeTabId,
+        generation: activeState.generation,
+        backend: visual.backend,
+        ocr: {
+          available: Boolean(visual.ocrAvailable),
+          executed: Boolean(visual.ocrExecuted),
+          text: visual.ocrText || ''
+        }
+      };
+      if (visual.ocrText) {
+        sanitizedContext.ocrText = visual.ocrText;
+      }
+      console.info(`[PRIVACY GATE] Attached verified sanitized screenshot (tab=${activeTabId} gen=${activeState.generation})`);
     }
-    if (!activeState.screenshot || activeState.screenshot !== sanitizedContext.screenshot) {
-      return failClosed('Screenshot data does not match active page generation — cross-generation injection blocked');
-    }
-  } else if (activeState.screenshot && typeof activeState.screenshot === 'string' && activeState.screenshot.startsWith('data:image/')) {
-    // Attach generation-verified sanitized screenshot from async visual enrichment
-    // The screenshot was written to activeState.screenshot only after passing through the
-    // visual worker and generation check in the VISUAL_ANALYZE handler.
-    sanitizedContext.screenshot = activeState.screenshot;
-    console.info(`[PRIVACY GATE] Attaching generation-verified sanitized screenshot to provider context (gen=${activeState.generation})`);
   }
 
   console.info(
@@ -802,10 +1367,7 @@ async function handleBackendRequest(message, sender) {
     `elements=${sanitizedContext.elements?.length || 0}`
   );
 
-  const modelConfig = await modelManager.getConfig();
-  const selectedProvider = modelConfig.providers[modelConfig.selectedProvider];
-
-  if (modelConfig.selectedProvider && selectedProvider?.configured) {
+  if (selectedProviderId && selectedProvider?.configured) {
     try {
       // Re-verify gate immediately before remote dispatch
       if (activeTabId !== requestTabId || activeState.generation !== (requestGeneration || activeState.generation)) {
@@ -823,18 +1385,21 @@ async function handleBackendRequest(message, sender) {
       return {
         ...response,
         isMock: false,
-        provider: modelConfig.selectedProvider,
+        provider: selectedProviderId,
         tabId: activeTabId,
         generation: activeState.generation
       };
     } catch (err) {
-      console.warn('[SIH][backend] Provider failed:', err.message);
+      const classified = (self.SIH_AgentCoordinator && typeof self.SIH_AgentCoordinator.classifyProviderError === 'function')
+        ? self.SIH_AgentCoordinator.classifyProviderError(err)
+        : { code: 'PROVIDER_FAILED', message: 'Provider request failed' };
+      console.warn('[SIH][backend] Provider failed safely:', classified.code);
       return {
         type: 'text',
-        message: `The selected AI provider is unavailable: ${err.message}`,
+        message: `The selected AI provider is unavailable: ${classified.message}`,
         isMock: false,
-        provider: modelConfig.selectedProvider,
-        errorCode: 'PROVIDER_UNAVAILABLE'
+        provider: selectedProviderId,
+        errorCode: classified.code
       };
     }
   }
@@ -927,36 +1492,11 @@ function getDeterministicMockResponse(sanitizedContext, userMessage, tabId, gene
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 async function handleScreenshotCapture(message, sender) {
-  try {
-    const tabId = message.tabId || sender.tab?.id || activeTabId;
-    if (!tabId) return { error: 'No tab ID available' };
-
-    const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
-    const rectsResponse = await chrome.tabs.sendMessage(tabId, { type: 'GET_RECTS' });
-    const rects = rectsResponse?.rects || [];
-
-    if (rects.length === 0) {
-      return { screenshot: dataUrl };
-    }
-
-    const redactionStarted = performance.now();
-    const redactionResponse = await chrome.tabs.sendMessage(tabId, {
-      type: 'REDACT_SCREENSHOT',
-      dataUrl,
-      rects
-    });
-    if (!redactionResponse?.redactedScreenshot) {
-      return { error: redactionResponse?.error || 'Local screenshot redaction failed' };
-    }
-    return {
-      screenshot: redactionResponse.redactedScreenshot,
-      redacted: true,
-      timings: { redactionMs: performance.now() - redactionStarted }
-    };
-  } catch (err) {
-    console.error('[SIH] Screenshot capture failed:', err);
-    return { error: err.message };
-  }
+  // Legacy capture endpoint — fail closed to prevent raw screenshot exposure
+  return {
+    error: 'Direct screenshot capture deprecated. Use authoritative visual pipeline.',
+    screenshot: null
+  };
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */

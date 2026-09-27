@@ -21,7 +21,13 @@
       const response = await fetch(`${API_URL}/models`, { headers: { Authorization: `Bearer ${apiKey}` } });
       if (!response.ok) throw new Error(`Groq models request failed (${response.status})`);
       const data = await response.json();
-      return (data.data || []).map(model => ({ id: model.id, name: model.id }));
+      return (data.data || [])
+        .filter(m => !m.id.includes('whisper') && !m.id.includes('distil'))
+        .map(model => ({
+          id: model.id,
+          name: model.id,
+          capabilities: { text: true, vision: false, tools: false }
+        }));
     }
 
     async chat(apiKey, model, sanitizedContext, userMessage) {

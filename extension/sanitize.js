@@ -192,9 +192,23 @@ function buildSanitizedContext(detections, redactedScreenshot) {
   const rawTitle = document.title || '';
   const sanitizedTitle = sanitizeText(rawTitle, detections);
   
+  // Page URL (origin + pathname only, excluding query and hash to prevent URL PII leakage)
+  let pageUrl = '';
+  try {
+    if (typeof window !== 'undefined' && window.location) {
+      if (window.location.origin && window.location.origin !== 'null') {
+        pageUrl = window.location.origin + (window.location.pathname || '');
+      } else {
+        pageUrl = window.location.href ? window.location.href.split('?')[0].split('#')[0] : '';
+      }
+    }
+  } catch (e) {
+    pageUrl = '';
+  }
+
   const context = {
     page: {
-      url: window.location.href,
+      url: pageUrl,
       title: sanitizedTitle
     },
     elements: sanitizedElements,

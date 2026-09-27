@@ -1,9 +1,8 @@
 /**
- * Visual Worker — SIH26171 Phase 2
+ * Offscreen Visual Processor — SIH26171
  *
- * Runs entirely off the main thread.
- * Spawned by the BACKGROUND SERVICE WORKER (not content scripts) so that
- * module workers and dynamic import() work under extension CSP.
+ * Runs inside the minimal Offscreen Document (offscreen.html) as an ES module.
+ * Executes MediaPipe face detection and screenshot redaction off the main thread.
  *
  * Message protocol (all messages carry a { id } for correlation):
  *
@@ -18,72 +17,69 @@
  *     { type: 'DIAGNOSTIC', id, stage, data }
  *
  * Coordinate convention: ALL bounding boxes use ABSOLUTE PIXEL coordinates
- * relative to the screenshot image dimensions (matching the existing redactor.js
- * and detectionFusion.js conventions).
+ * relative to the screenshot image dimensions.
  *
- * The worker produces a sanitized screenshot as its primary output.
- * Raw pixels never leave the worker unsanitized.
+ * The processor produces a sanitized screenshot as its primary output.
+ * Raw pixels never leave the offscreen document unsanitized.
  */
 
 'use strict';
 
-/* ── Worker-level state ── */
+/* ── Processor-level state ── */
 let mediapipeRuntime = null;      // { detector } or null
 let mediapipeLoadPromise = null;  // single in-flight load
-let workerReady = false;
-let visualModelRuntime = null;    // future: general lightweight visual model
 
-/* ── Visual model stub import (lazy) ─────────────────────────────────────────
- * The stub is a no-op until a real ONNX model artifact is integrated.
- * Import path is resolved at worker init time via the same extension origin.
- */
-let _visualModelStubLoaded = false;
-async function getVisualModelStub() {
-  if (_visualModelStubLoaded) return self.SIH_VisualModelStub || null;
-  try {
-    // The stub sets self.SIH_VisualModelStub on load.
-    // Dynamic import works in module workers under extension CSP.
-    // Resolve URL relative to the extension origin (same as visualWorker.js).
-    const stubUrl = new URL('./visualModelStub.js', import.meta.url).href;
-    await import(stubUrl);
-    _visualModelStubLoaded = true;
-  } catch (e) {
-    // Stub unavailable — continue without general visual model
-    _visualModelStubLoaded = true; // mark as attempted so we don't retry
+/* ── OCR Runtime State (Delegated to authoritative SIH_OcrDetector backed by local vendor/tesseract/) ── */
+function getOcrDetector() {
+  if (typeof self !== 'undefined' && self.SIH_OcrDetector) {
+    return self.SIH_OcrDetector;
   }
-  return self.SIH_VisualModelStub || null;
+  return null;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────── */
-/* Message dispatch                                                            */
-/* ─────────────────────────────────────────────────────────────────────────── */
+/**
+ * Sanitize extracted OCR text before it enters model context.
+ * Bounded length, normalized whitespace, stripped control characters,
+ * and secondary PII regex scrubbing.
+ */
+export function sanitizeOcrText(rawText) {
+  if (!rawText || typeof rawText !== 'string') return '';
+  let clean = rawText;
+  clean = clean.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  clean = clean.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  clean = clean.replace(/[ \t]{2,}/g, ' ');
+  clean = clean.replace(/\n{3,}/g, '\n\n');
+  clean = clean.split('\n').map(line => line.trim()).join('\n').trim();
 
-self.addEventListener('message', async (event) => {
-  const msg = event.data;
-  if (!msg || !msg.type) return;
-
-  switch (msg.type) {
-    case 'PING':
-      self.postMessage({ type: 'PONG', id: msg.id });
-      return;
-
-    case 'ANALYZE':
-      await handleAnalyze(msg);
-      return;
-
-    default:
-      // Unknown message — silently ignore
-      return;
+  // Enforce bounding limit (max 2000 characters)
+  const MAX_OCR_LENGTH = 2000;
+  if (clean.length > MAX_OCR_LENGTH) {
+    clean = clean.slice(0, MAX_OCR_LENGTH).trim() + '...';
   }
-});
+
+  // Secondary safety regex pass for any missed standard PII
+  clean = clean.replace(/\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g, '[REDACTED_EMAIL]');
+  clean = clean.replace(/(?:\+?\d{1,3}[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4,}\b/g, '[REDACTED_PHONE]');
+  clean = clean.replace(/\b(?:\d[\s\-]?){13,19}\b/g, '[REDACTED_NUMBER]');
+
+  return clean;
+}
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* Main analysis pipeline                                                      */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-async function handleAnalyze(msg) {
+export async function handleAnalyze(msg, onDiagnosticCallback) {
+  console.info('[SIH][VISION] visual processor started');
   const { id, dataUrl, viewport, mediapipeWasmRoot, mediapipeModelPath, mediapipeBundleUrl } = msg;
   const timings = { workerReceiveMs: performance.now() };
+
+  // Request-scoped diagnostic emitter — avoids concurrency hazards
+  const postDiagnostic = (stage, data) => {
+    if (typeof onDiagnosticCallback === 'function') {
+      onDiagnosticCallback(id, stage, data);
+    }
+  };
 
   try {
     if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
@@ -91,15 +87,18 @@ async function handleAnalyze(msg) {
     }
 
     // ── Step 1: Decode the screenshot into an ImageBitmap ──────────────────
+    console.info(`[SIH][OFFSCREEN 02] image decode started`);
     const decodeStart = performance.now();
     const blob = dataUrlToBlob(dataUrl);
+    msg.dataUrl = null; // Discard raw screenshot reference immediately after decoding
     const imageBitmap = await createImageBitmap(blob);
+    console.info(`[SIH][OFFSCREEN 03] image decode completed`);
     timings.decodeMs = performance.now() - decodeStart;
 
     const imgW = imageBitmap.width;
     const imgH = imageBitmap.height;
 
-    postDiagnostic(id, 'screenshot', {
+    postDiagnostic('screenshot', {
       imageWidth: imgW,
       imageHeight: imgH,
       viewportWidth: viewport?.width,
@@ -121,27 +120,41 @@ async function handleAnalyze(msg) {
 
     if (mediapipeWasmRoot && mediapipeModelPath && mediapipeBundleUrl) {
       try {
+        console.info(`[SIH][MP 01] runtime initialization started`);
+        console.info('[SIH][VISION] MediaPipe initialization started');
         const mpRuntime = await loadMediaPipe(mediapipeBundleUrl, mediapipeWasmRoot, mediapipeModelPath);
         if (mpRuntime) {
+          console.info(`[SIH][MP 02] runtime available`);
+          console.info(`[SIH][MP 03] detector initialization started`);
+          console.info(`[SIH][MP 04] detector initialized`);
+          console.info('[SIH][VISION] MediaPipe initialization completed');
           cvAvailable = true;
-          backend = 'WASM'; // MediaPipe Tasks Vision uses WASM in extensions
+          backend = 'mediapipe';
 
           // MediaPipe requires an ImageBitmap — recreate from canvas
+          console.info(`[SIH][OFFSCREEN 04] visual worker/detector started`);
+          console.info(`[SIH][MP 05] inference started`);
+          console.info(`[SIH][VISION TRACE 11]\ninference started\nbackend=${backend}`);
           const bitmapForMp = await createImageBitmap(canvas);
           const rawDetections = mpRuntime.detect(bitmapForMp);
           bitmapForMp.close();
 
+          console.info(`[SIH][MP 06] inference completed`);
           faceDetections = normalizeMediaPipeResults(rawDetections, imgW, imgH);
+          console.info(`[SIH][MP 07] faces detected=${faceDetections.length}`);
+          console.info(`[SIH][OFFSCREEN 05] detector completed`);
+          console.info(`[SIH][VISION TRACE 12]\ninference completed\nfacesDetected=${faceDetections.length}`);
         }
       } catch (err) {
+        console.error(`[SIH][MP ERROR]\nerror.name=${err.name}\nerror.message=${err.message}\nstack=${err.stack}`);
         cvError = err.message;
-        postDiagnostic(id, 'cv_error', { message: '[REDACTED_ERROR]', code: err.name });
+        postDiagnostic('cv_error', { message: '[REDACTED_ERROR]', code: err.name });
       }
     }
 
     timings.cvMs = performance.now() - cvStart;
 
-    postDiagnostic(id, 'cv_result', {
+    postDiagnostic('cv_result', {
       backend,
       available: cvAvailable,
       faceCount: faceDetections.length,
@@ -149,33 +162,24 @@ async function handleAnalyze(msg) {
       error: cvError ? 'ERROR_PRESENT' : null
     });
 
-    // ── Step 3b: General visual model (stub — no-op until model is integrated) ──
-    // When a real model is selected, replace visualModelStub.js.
-    // The detection output merges into allDetections below.
-    const cvGeneralStart = performance.now();
-    let generalVisualDetections = [];
-    try {
-      const stub = await getVisualModelStub();
-      if (stub && stub.isAvailable()) {
-        // Real model path (future)
-        const generalResult = await stub.runInference(canvas, { confidenceThreshold: 0.5 });
-        if (generalResult?.available && Array.isArray(generalResult.detections)) {
-          generalVisualDetections = generalResult.detections;
-          postDiagnostic(id, 'general_visual_result', {
-            available: true,
-            count: generalVisualDetections.length,
-            cvGeneralMs: (performance.now() - cvGeneralStart).toFixed(1)
-          });
-        }
-      }
-      // Stub always returns available=false — this branch is effectively a no-op in Phase 2
-    } catch (_stubErr) {
-      // Never let general visual model failure affect the main pipeline
+    // FAIL-CLOSED INVARIANT: If CV backend is unavailable or failed, do NOT return screenshot
+    if (!cvAvailable || cvError || backend === 'unavailable') {
+      return {
+        ok: false,
+        sanitizedDataUrl: null,
+        detections: [],
+        discarded: true,
+        backend: 'unavailable',
+        cvExecuted: false,
+        ocrExecuted: false,
+        timings,
+        error: cvError || 'CV_UNAVAILABLE'
+      };
     }
-    timings.cvGeneralMs = performance.now() - cvGeneralStart;
 
+    // ── Step 4: Redact sensitive regions on OffscreenCanvas ───────────────
     const sanitizeStart = performance.now();
-    const allDetections = [...faceDetections, ...generalVisualDetections];
+    const allDetections = [...faceDetections];
 
     // Also include any text PII rects passed in from the content script
     // (already in viewport-relative coords from DOM/regex detectors).
@@ -186,44 +190,104 @@ async function handleAnalyze(msg) {
       }
     }
 
+    console.info(`[SIH][OFFSCREEN 06] redaction started`);
+    console.info(`[SIH][VISION TRACE 13]\nredaction started\nregions=${allDetections.length}`);
     applyRedaction(ctx, canvas.width, canvas.height, allDetections, viewport);
+    console.info(`[SIH][MP 08] redaction completed`);
+    console.info(`[SIH][OFFSCREEN 07] redaction completed`);
+    console.info(`[SIH][VISION TRACE 14]\nredaction completed\nfacesMasked=${faceDetections.length}`);
     timings.sanitizeMs = performance.now() - sanitizeStart;
 
-    // ── Step 5: Export sanitized screenshot ────────────────────────────────
+    // ── Step 5: Local OCR execution on sanitized canvas ────────────────────
+    // CRITICAL: Executes strictly on the sanitized (redacted) canvas
+    // so any visual PII (faces, text PII) has already been masked.
+    const ocrStart = performance.now();
+    let ocrExecuted = false;
+    let ocrAvailable = false;
+    let ocrText = '';
+    let ocrError = null;
+
+    try {
+      const detector = getOcrDetector();
+      if (detector && detector.isAvailable()) {
+        ocrAvailable = true;
+        // 6s timeout to prevent hanging
+        const ocrPromise = detector.recognize(canvas, { root: msg.tesseractRoot });
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('OCR_TIMEOUT')), 6000)
+        );
+        const ocrResult = await Promise.race([ocrPromise, timeoutPromise]);
+        if (ocrResult && ocrResult.available) {
+          const extracted = ocrResult.text || '';
+          ocrText = sanitizeOcrText(extracted);
+          ocrExecuted = true;
+        } else if (ocrResult && !ocrResult.available) {
+          ocrError = ocrResult.reason || 'OCR_UNAVAILABLE';
+        }
+      }
+    } catch (err) {
+      console.warn('[SIH][OCR] Local OCR failed safely:', err.message);
+      ocrError = err.message;
+      ocrExecuted = false;
+      ocrText = '';
+    }
+
+    timings.ocrMs = performance.now() - ocrStart;
+
+    postDiagnostic('ocr_result', {
+      executed: ocrExecuted,
+      available: ocrAvailable,
+      ocrMs: timings.ocrMs.toFixed(1),
+      chars: ocrText.length,
+      error: ocrError ? 'ERROR_PRESENT' : null
+    });
+
+    // ── Step 6: Export sanitized screenshot ────────────────────────────────
     const exportStart = performance.now();
     const sanitizedBlob = await canvas.convertToBlob({ type: 'image/png' });
     const sanitizedDataUrl = await blobToDataUrl(sanitizedBlob);
+    console.info(`[SIH][OFFSCREEN 08] sanitized result generated`);
     timings.exportMs = performance.now() - exportStart;
 
     timings.totalMs = performance.now() - timings.workerReceiveMs;
 
-    postDiagnostic(id, 'sanitized_screenshot', {
+    postDiagnostic('sanitized_screenshot', {
       viewport: `${imgW}x${imgH}`,
       totalDetections: allDetections.length,
       sanitizedRegions: allDetections.filter(d => d.rect || (typeof d.x === 'number')).length,
       totalMs: timings.totalMs.toFixed(1)
     });
 
-    self.postMessage({
-      type: 'RESULT',
-      id,
-      detections: allDetections,
+    return {
+      ok: true,
       sanitizedDataUrl,
-      backend,
-      timings
-    });
+      detections: allDetections,
+      discarded: false,
+      backend: 'mediapipe',
+      cvExecuted: true,
+      ocrExecuted,
+      ocrAvailable,
+      ocrText,
+      ocrDebug: ocrError || null,
+      timings,
+      error: null
+    };
 
   } catch (err) {
-    // Fail-closed: never return the raw screenshot if sanitization failed
-    self.postMessage({
-      type: 'RESULT',
-      id,
-      detections: [],
+    // Fail-closed: never return the raw screenshot if sanitization or pipeline failed
+    return {
+      ok: false,
       sanitizedDataUrl: null, // BLOCKED — sanitization failed
+      detections: [],
+      discarded: true,
       backend: 'unavailable',
+      cvExecuted: false,
+      ocrExecuted: false,
+      ocrAvailable: false,
+      ocrText: '',
       timings,
-      error: err.message
-    });
+      error: err.message || 'VISUAL_WORKER_ERROR'
+    };
   }
 }
 
@@ -343,18 +407,11 @@ async function loadMediaPipe(bundleUrl, wasmRoot, modelPath) {
     try {
       vision = await import(bundleUrl);
     } catch (importErr) {
-      // Emit diagnostic but do NOT fall back to importScripts (it breaks .mjs)
-      self.postMessage({
-        type: 'DIAGNOSTIC',
-        id: 'mediapipe_load',
-        stage: 'mediapipe_import_failed',
-        data: { name: importErr.name, bundleUrl }
-      });
       console.warn('[SIH][Worker] MediaPipe dynamic import() failed:', importErr.name, importErr.message);
     }
 
     if (!vision || !vision.FilesetResolver || !vision.FaceDetector) {
-      console.warn('[SIH][Worker] MediaPipe API unavailable after import — face detection disabled, text PII masking remains active');
+      console.warn('[SIH][Worker] MediaPipe API unavailable after import — face detection disabled');
       mediapipeLoadPromise = null;
       return null;
     }
@@ -378,6 +435,9 @@ async function loadMediaPipe(bundleUrl, wasmRoot, modelPath) {
 
     } catch (err) {
       console.warn('[SIH][Worker] MediaPipe FaceDetector init failed:', err.name, err.message);
+      if (typeof onDiagnosticGlobal !== 'undefined' && onDiagnosticGlobal) {
+        onDiagnosticGlobal('mediapipe_load', 'cv_error', { name: err.name, code: err.message });
+      }
       mediapipeRuntime = null;
       mediapipeLoadPromise = null;
       return null;
@@ -433,9 +493,4 @@ function blobToDataUrl(blob) {
     reader.onerror = () => reject(new Error('Worker: Failed to export sanitized image'));
     reader.readAsDataURL(blob);
   });
-}
-
-function postDiagnostic(id, stage, data) {
-  // Never include raw pixel data or PII values in diagnostics
-  self.postMessage({ type: 'DIAGNOSTIC', id, stage, data });
 }

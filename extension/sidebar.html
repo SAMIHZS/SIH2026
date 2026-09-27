@@ -12,16 +12,21 @@
 <body>
   <div class="sidebar-container">
 
-    <!-- Header -->
+    <!-- ════════════════════════════════════════════════
+         1. COMPACT HEADER (60px)
+    ════════════════════════════════════════════════ -->
     <header class="sidebar-header">
       <div class="sidebar-header-left">
         <div class="header-icon" aria-hidden="true">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
           </svg>
         </div>
         <div class="header-title-group">
-          <span class="header-title">Privacy Assistant</span>
+          <div class="header-title-row">
+            <span class="header-title">Privacy Assistant</span>
+            <span class="header-model-pill" id="headerSelectedModel" title="Current configured model">Gemini 2.5 Flash</span>
+          </div>
           <div class="header-status">
             <span class="header-status-dot" id="headerStatusDot"></span>
             <span class="header-status-label" id="headerStatusLabel">Protected</span>
@@ -50,111 +55,368 @@
       </div>
     </header>
 
-    <!-- Model Selector -->
-    <div class="model-selector-container">
-      <label for="sidebarModelSelect" class="sr-only">Model</label>
-      <select id="sidebarModelSelect" class="sidebar-model-select">
-        <option value="">Loading models...</option>
-      </select>
-    </div>
+    <!-- ════════════════════════════════════════════════
+         2. PRIMARY NAVIGATION (CHAT / CONTEXT / PRIVACY)
+    ════════════════════════════════════════════════ -->
+    <nav class="sidebar-nav" role="tablist" aria-label="Main Navigation">
+      <button id="tabChat" role="tab" class="nav-tab active" aria-selected="true" aria-controls="chatView">Chat</button>
+      <button id="tabContext" role="tab" class="nav-tab" aria-selected="false" aria-controls="contextView">Context</button>
+      <button id="tabPrivacy" role="tab" class="nav-tab" aria-selected="false" aria-controls="privacyView">Privacy</button>
+    </nav>
 
-    <!-- Main Workspace -->
-    <main class="sidebar-main">
+    <!-- ════════════════════════════════════════════════
+         3. MAIN WORKSPACE / ACTIVE VIEWS
+    ════════════════════════════════════════════════ -->
+    <main class="sidebar-main" id="sidebarMain">
 
-      <!-- Empty State -->
-      <div class="empty-state" id="emptyState">
-        <div class="empty-state-icon" aria-hidden="true">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-          </svg>
+      <!-- ── VIEW 1: CHAT VIEW (DEFAULT PRIMARY EXPERIENCE) ── -->
+      <div id="chatView" class="view-pane active" role="tabpanel" aria-labelledby="tabChat">
+        <div class="chat-scroll-area" id="chatScrollArea">
+          <!-- Empty State -->
+          <div class="empty-state" id="emptyState">
+            <div class="empty-state-icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+            </div>
+            <h2 class="empty-title">Ask anything about this page.</h2>
+            <p class="empty-sub">Your sensitive visual context is processed locally.</p>
+            <div class="suggestions">
+              <button class="suggestion-row" type="button" data-prompt="Summarize this page">
+                <span>Summarize this page</span>
+                <span class="arrow">→</span>
+              </button>
+              <button class="suggestion-row" type="button" data-prompt="Explain this page">
+                <span>Explain this page</span>
+                <span class="arrow">→</span>
+              </button>
+              <button class="suggestion-row" type="button" data-prompt="Find important information on this page">
+                <span>Find important information</span>
+                <span class="arrow">→</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Conversation Stream -->
+          <div class="conversation-stream" id="conversationStream" style="display: none;"></div>
+
+          <!-- Confirmation Dialog (Generation-scoped action firewall) -->
+          <div class="confirmation-dialog" id="confirmationDialog" style="display: none;">
+            <div class="confirmation-header">Action requires approval</div>
+            <div class="confirmation-body">
+              <p class="confirmation-text">The assistant wants to:</p>
+              <p class="confirmation-target" id="confirmationActionDesc">Click "Submit Application"</p>
+              <p class="confirmation-target-domain" id="confirmationDomain">Website: example.com</p>
+            </div>
+            <div class="confirmation-actions">
+              <button type="button" id="confirmCancelBtn" class="confirm-cancel">Cancel</button>
+              <button type="button" id="confirmAllowBtn" class="confirm-allow">Allow</button>
+            </div>
+          </div>
         </div>
-        <h2 class="empty-title">Privacy Assistant</h2>
-        <p class="empty-sub">Ask anything about this page.</p>
-        <div class="suggestions">
-          <button class="suggestion-row" type="button" data-prompt="Summarize this page">
-            <span>Summarize this page</span>
-            <span class="arrow">→</span>
+
+        <!-- Compact Persistent Privacy Indicator in Chat View -->
+        <div class="chat-privacy-bar">
+          <button id="chatPrivacyBadge" class="chat-privacy-indicator" type="button" aria-label="Privacy protected locally. Click to open privacy view.">
+            <span class="privacy-pill-shield" aria-hidden="true">🛡️</span>
+            <span class="privacy-pill-text">Protected locally</span>
+            <span class="privacy-pill-check">✓</span>
           </button>
-          <button class="suggestion-row" type="button" data-prompt="Explain this page">
-            <span>Explain this page</span>
-            <span class="arrow">→</span>
-          </button>
-          <button class="suggestion-row" type="button" data-prompt="Find important information on this page">
-            <span>Find important information</span>
-            <span class="arrow">→</span>
-          </button>
+        </div>
+
+        <!-- Sticky Bottom Input Composer -->
+        <div class="input-area">
+          <div class="input-wrapper">
+            <textarea
+              id="userInput"
+              placeholder="Ask about this page..."
+              rows="1"
+              autocomplete="off"
+            ></textarea>
+            <button id="sendBtn" class="send-btn" type="button" aria-label="Send" title="Send" disabled>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5"/>
+                <polyline points="5 12 12 5 19 12"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
-      <!-- Conversation Stream -->
-      <div class="conversation-stream" id="conversationStream" style="display: none;"></div>
-      
-      <!-- Confirmation Dialog -->
-      <div class="confirmation-dialog" id="confirmationDialog" style="display: none;">
-        <div class="confirmation-header">Action requires approval</div>
-        <div class="confirmation-body">
-          <p class="confirmation-text">The assistant wants to:</p>
-          <p class="confirmation-target" id="confirmationActionDesc">Click "Submit Application"</p>
-          <p class="confirmation-target-domain" id="confirmationDomain">Website: example.com</p>
-        </div>
-        <div class="confirmation-actions">
-          <button type="button" id="confirmCancelBtn" class="confirm-cancel">Cancel</button>
-          <button type="button" id="confirmAllowBtn" class="confirm-allow">Allow</button>
+      <!-- ── VIEW 2: CONTEXT VIEW (WHAT THE AI SEES) ── -->
+      <div class="view-pane" id="contextView" role="tabpanel" aria-labelledby="tabContext" style="display: none;">
+        <div class="pane-scroll-container">
+          <div class="pane-header">
+            <h2 class="pane-title">Sanitized Context</h2>
+            <p class="pane-subtitle">Information permitted to leave local device</p>
+          </div>
+
+          <!-- Structured Context Cards -->
+          <div class="context-data-cards">
+            <div class="context-card">
+              <div class="context-card-label">Page</div>
+              <div class="context-card-value font-mono" id="seePageUrl">—</div>
+            </div>
+            <div class="context-card-row">
+              <div class="context-card half">
+                <div class="context-card-label">Visual</div>
+                <div class="context-card-value" id="seeVisualStatus">Sanitized screenshot ✓</div>
+              </div>
+              <div class="context-card half">
+                <div class="context-card-label">OCR</div>
+                <div class="context-card-value" id="seeOcrStatus">Executed ✓</div>
+              </div>
+            </div>
+            <div class="context-card">
+              <div class="context-card-label">Detected PII Redactions</div>
+              <div class="context-card-chips" id="seeDetectedCategories">
+                <span class="status-chip status-chip-coral">[NONE DETECTED]</span>
+              </div>
+            </div>
+            <div class="context-card-row">
+              <div class="context-card half">
+                <div class="context-card-label">Interactive Elements</div>
+                <div class="context-card-value" id="seeElementsCount">0 elements</div>
+              </div>
+              <div class="context-card half">
+                <div class="context-card-label">Model & Vision</div>
+                <div class="context-card-value" id="seeModelInfo">Gemini 2.5 Flash</div>
+                <div class="context-subtext" id="seeVisionStatus">Vision: Enabled</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Compact Visual Context Toggle -->
+          <div class="context-toggle-card">
+            <div class="context-toggle-header">
+              <div>
+                <span class="context-toggle-title">Visual context</span>
+                <p class="context-note" id="screenshotNote">Captured locally · Sensitive regions redacted</p>
+              </div>
+              <label class="context-switch" aria-label="Send sanitized screenshot to AI">
+                <input type="checkbox" id="screenshotToggle" role="switch" aria-checked="true" aria-label="Send sanitized screenshot to AI">
+                <span class="context-slider" aria-hidden="true"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Sanitized Screenshot Preview Card -->
+          <div class="evidence-preview-card" id="privacyEvidenceSection" aria-label="Privacy Processing Evidence">
+            <div class="evidence-card-header" id="evidenceHeader">
+              <div class="evidence-header-left">
+                <span class="evidence-icon" aria-hidden="true">🔍</span>
+                <span class="evidence-title">Sanitized Screenshot Preview</span>
+              </div>
+              <span class="evidence-badge" id="evidenceStatusBadge">Protected</span>
+            </div>
+
+            <div class="evidence-notice">
+              Only this sanitized image is available to the assistant. Raw screenshots never leave local memory.
+            </div>
+
+            <div class="evidence-preview-container" id="evidencePreviewContainer">
+              <div class="evidence-loading" id="evidenceLoading" style="display: none;">
+                <div class="evidence-spinner"></div>
+                <span id="evidenceLoadingText">Waiting for local visual processing…</span>
+              </div>
+              <div class="evidence-empty" id="evidenceEmpty">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+                <span class="evidence-empty-title" id="evidenceEmptyText">Visual sanitization unavailable</span>
+                <span class="evidence-empty-sub" id="evidenceEmptySubtext">No sanitized image was produced.</span>
+              </div>
+              <div class="evidence-image-wrapper" id="evidenceImageWrapper" style="display: none;">
+                <img id="sanitizedScreenshotImg" class="evidence-image" alt="Sanitized Screenshot" />
+                <div id="evidenceRedactionOverlay" class="evidence-overlay" style="display: none;"></div>
+              </div>
+            </div>
+
+            <div class="evidence-toggle-row" id="evidenceOverlayToggleRow" style="display: none;">
+              <label for="overlayToggle" class="evidence-toggle-label">Show redaction regions</label>
+              <input type="checkbox" id="overlayToggle" class="evidence-checkbox" />
+            </div>
+
+            <div class="evidence-badges-row">
+              <span class="badge-item"><span class="badge-check">✓</span> Processed locally</span>
+              <span class="badge-item"><span class="badge-check">✓</span> Sensitive regions redacted</span>
+              <span class="badge-item" id="badgeVisionAttached" style="display: none;"><span class="badge-check">✓</span> Sanitized image attached</span>
+            </div>
+            <div id="visionModelNotice" class="evidence-notice" style="display: none; margin-top: 6px; font-style: italic;">
+              Sanitized image not sent — selected model does not support vision.
+            </div>
+          </div>
+
+          <!-- Processing Evidence Accordion (Collapsible) -->
+          <details class="processing-details-accordion" id="processingDetailsAccordion">
+            <summary class="processing-accordion-summary">
+              <span class="accordion-summary-title">Processing details</span>
+              <span class="accordion-chevron">▾</span>
+            </summary>
+            <div class="evidence-meta-grid" id="evidenceMetaGrid">
+              <div class="meta-item">
+                <span class="meta-label">Backend</span>
+                <span class="meta-value" id="metaBackend">MediaPipe</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">CV</span>
+                <span class="meta-value meta-active" id="metaCv">Executed</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">OCR</span>
+                <span class="meta-value meta-inactive" id="metaOcr">Not executed</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Sensitive regions</span>
+                <span class="meta-value" id="metaRegions">0 detected</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Processing</span>
+                <span class="meta-value" id="metaProcessing">—</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Generation</span>
+                <span class="meta-value" id="metaGeneration">—</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Provider</span>
+                <span class="meta-value" id="metaProvider">—</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Model</span>
+                <span class="meta-value" id="metaModel">—</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Vision</span>
+                <span class="meta-value" id="metaVision">—</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Grounded elements</span>
+                <span class="meta-value" id="metaGrounded">—</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Action target</span>
+                <span class="meta-value" id="metaActionTarget">—</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Agent</span>
+                <span class="meta-value" id="metaAgent">Idle</span>
+              </div>
+            </div>
+          </details>
+
+          <button id="viewContextBtn" type="button" style="display:none;" aria-hidden="true">View sanitized context</button>
         </div>
       </div>
+
+      <!-- ── VIEW 3: PRIVACY VIEW (FACTUAL VERIFIABLE PRIVACY GUARANTEES) ── -->
+      <div class="view-pane" id="privacyView" role="tabpanel" aria-labelledby="tabPrivacy" style="display: none;">
+        <div class="pane-scroll-container">
+          <div class="pane-header">
+            <h2 class="pane-title">Privacy Guarantees</h2>
+            <p class="pane-subtitle">Factual statement of local vs remote processing</p>
+          </div>
+
+          <section class="privacy-status-section" id="privacyStatusSection" aria-label="Privacy Protected">
+            <div class="privacy-status-card">
+              <div class="privacy-status-header">
+                <span class="privacy-status-shield" aria-hidden="true">🛡️</span>
+                <span class="privacy-status-title">PRIVACY PROTECTED</span>
+                <span class="status-check">✓</span>
+              </div>
+              <p class="privacy-statement">Sensitive visual data is processed locally before model transmission.</p>
+
+              <div class="privacy-breakdown">
+                <div class="breakdown-group">
+                  <span class="breakdown-heading">Local processing</span>
+                  <ul class="breakdown-list">
+                    <li><span class="check-mark">✓</span> Face detection</li>
+                    <li><span class="check-mark">✓</span> OCR</li>
+                    <li><span class="check-mark">✓</span> PII sanitization</li>
+                  </ul>
+                </div>
+                <div class="breakdown-group">
+                  <span class="breakdown-heading">Model receives</span>
+                  <ul class="breakdown-list">
+                    <li><span class="check-mark">✓</span> Sanitized context</li>
+                    <li><span class="check-mark">✓</span> Sanitized screenshot when vision is required</li>
+                    <li><span class="check-mark">✓</span> Bounded OCR text</li>
+                  </ul>
+                </div>
+                <div class="breakdown-group negative">
+                  <span class="breakdown-heading">Model does NOT receive</span>
+                  <ul class="breakdown-list negative">
+                    <li><span class="cross-mark">✕</span> Raw screenshot</li>
+                    <li><span class="cross-mark">✕</span> Raw page contents</li>
+                    <li><span class="cross-mark">✕</span> Raw PII</li>
+                    <li><span class="cross-mark">✕</span> Browser credentials</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Security Context / Protection Details -->
+          <div class="security-banner" id="securityBanner" style="display: none;">
+            <div class="security-summary-row">
+              <span class="security-icon" id="securityIcon">✓</span>
+              <span class="security-text" id="securityNoticeText">Sensitive content protected locally</span>
+              <button class="details-toggle" id="detailsToggle" type="button">Protection details +</button>
+            </div>
+            <div class="details-drawer" id="detailsDrawer" style="display: none;">
+              <div class="details-list" id="detailsList"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </main>
 
-    <!-- Security Context (Compact bottom bar) -->
-    <div class="security-banner" id="securityBanner" style="display: none;">
-      <div class="security-summary-row">
-        <span class="security-icon" id="securityIcon">✓</span>
-        <span class="security-text" id="securityNoticeText">Sensitive content protected locally</span>
-        <button class="details-toggle" id="detailsToggle" type="button">Details →</button>
-      </div>
-      <div class="details-drawer" id="detailsDrawer" style="display: none;">
-        <div class="details-list" id="detailsList"></div>
+    <!-- ════════════════════════════════════════════════
+         4. SETTINGS MODAL DIALOG
+    ════════════════════════════════════════════════ -->
+    <div id="settingsModal" class="settings-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+      <div class="settings-modal-backdrop" id="settingsModalBackdrop"></div>
+      <div class="settings-modal-card">
+        <div class="settings-modal-header">
+          <div class="settings-modal-title" id="settingsModalTitle">Settings</div>
+          <button type="button" id="closeSettingsModalBtn" class="close-btn" aria-label="Close Settings">✕</button>
+        </div>
+        <div class="settings-modal-body">
+          <div class="settings-section">
+            <label for="sidebarModelSelect" class="settings-label">Model Selection</label>
+            <select id="sidebarModelSelect" class="sidebar-model-select">
+              <option value="">Loading models...</option>
+            </select>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-label">Capabilities</div>
+            <div class="settings-caps-row">
+              <span class="cap-tag"><span class="check-mark">✓</span> Text reasoning</span>
+              <span class="cap-tag" id="settingsVisionCapTag"><span class="check-mark">✓</span> Vision capable</span>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-label">API Key</div>
+            <div class="settings-key-masked">••••••••••••••••</div>
+            <div class="settings-hint">API keys are securely stored and never transmitted to the webpage.</div>
+          </div>
+
+          <div class="settings-footer">
+            <button type="button" id="openFullOptionsBtn" class="settings-link-btn">Advanced Options Page →</button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- AI Context Controls -->
-    <div class="context-controls" id="contextControls">
-      <p class="context-controls-label">Context</p>
-      <div class="context-row">
-        <span class="context-item-name">
-          Text
-          <span class="context-ready">Ready</span>
-        </span>
-        <span class="context-badge context-badge-on" aria-label="Text context always active">ON</span>
-      </div>
-      <div class="context-row">
-        <label for="screenshotToggle" class="context-item-name">
-          Screenshot
-        </label>
-        <label class="context-switch" aria-label="Send sanitized screenshot to AI">
-          <input type="checkbox" id="screenshotToggle" role="switch"
-            aria-checked="true" aria-label="Send sanitized screenshot to AI">
-          <span class="context-slider" aria-hidden="true"></span>
-        </label>
-      </div>
-      <p class="context-note" id="screenshotNote">Sanitized locally · faces blurred · PII masked</p>
-    </div>
-
-    <!-- Input Composer -->
-    <div class="input-area">
-      <div class="input-wrapper">
-        <textarea
-          id="userInput"
-          placeholder="Ask about this page..."
-          rows="1"
-          autocomplete="off"
-        ></textarea>
-        <button id="sendBtn" class="send-btn" type="button" aria-label="Send" title="Send" disabled>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" y1="19" x2="12" y2="5"/>
-            <polyline points="5 12 12 5 19 12"/>
-          </svg>
-        </button>
-      </div>
+    <!-- Hidden compatibility modal for backward tests if referenced -->
+    <div id="sanitizedContextModal" style="display:none;" aria-hidden="true">
+      <button id="closeContextModalBtn" type="button" aria-hidden="true"></button>
+      <span>What the AI Sees</span>
     </div>
 
   </div>

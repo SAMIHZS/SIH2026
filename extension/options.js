@@ -167,7 +167,8 @@ document.addEventListener('DOMContentLoaded', () => {
       for (const model of models) {
         const option = document.createElement('option');
         option.value = model.id;
-        option.textContent = model.name || model.id;
+        const capTag = model.capabilities?.vision ? ' [Vision + Text]' : ' [Text only]';
+        option.textContent = `${model.name || model.id}${capTag}`;
         modelSelect.appendChild(option);
       }
       modelSelect.value = publicConfig.selectedModel || models[0].id;

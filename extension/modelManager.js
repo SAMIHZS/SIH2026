@@ -66,6 +66,9 @@
       // Temporarily replace for text-pattern checks
       contextForTextChecks.screenshot = '[REDACTED_SCREENSHOT]';
     }
+    delete contextForTextChecks.visualProvenance;
+    delete contextForTextChecks.tabId;
+    delete contextForTextChecks.generation;
     const serialized = JSON.stringify(contextForTextChecks);
     if (/\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/.test(serialized)) {
       throw new Error('Provider request blocked: raw email detected in context');
@@ -73,6 +76,26 @@
     if (/(?:\+?\d{1,3}[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4,}\b/.test(serialized)) {
       throw new Error('Provider request blocked: raw phone detected in context');
     }
+  }
+
+  function isVisionCapableModel(providerId, modelId) {
+    if (!providerId || !modelId) return false;
+    if (providerId === 'gemini') {
+      const lower = String(modelId).toLowerCase();
+      if (lower.includes('embedding') || lower.includes('aqa') || lower.includes('text-only')) {
+        return false;
+      }
+      return lower.includes('gemini');
+    }
+    return false;
+  }
+
+  function getModelCapabilities(providerId, modelId) {
+    return {
+      text: true,
+      vision: isVisionCapableModel(providerId, modelId),
+      tools: false
+    };
   }
 
   class ModelManager {
@@ -83,6 +106,14 @@
         gemini: new self.SIH_GeminiProvider.GeminiProvider(),
         local: new self.SIH_LocalProvider.LocalProvider()
       };
+    }
+
+    isVisionCapable(providerId, modelId) {
+      return isVisionCapableModel(providerId, modelId);
+    }
+
+    getModelCapabilities(providerId, modelId) {
+      return getModelCapabilities(providerId, modelId);
     }
 
     async getConfig() {
@@ -96,12 +127,23 @@
       const selectedModel = provider?.normalizeModelId
         ? provider.normalizeModelId(config.selectedModel)
         : config.selectedModel;
+      const selectedCapabilities = getModelCapabilities(providerId, selectedModel);
       return {
         selectedProvider: config.selectedProvider,
         selectedModel,
-        providers: Object.fromEntries(Object.entries(config.providers).map(([id, provider]) => [id, {
-          configured: Boolean(provider.configured),
-          models: provider.models || [],
+        selectedCapabilities,
+        providers: Object.fromEntries(Object.entries(config.providers).map(([id, pConfig]) => [id, {
+          configured: Boolean(pConfig.configured),
+          available: id !== 'local',
+          models: (pConfig.models || []).map(m => {
+            const mId = typeof m === 'object' ? m.id : m;
+            const mName = typeof m === 'object' ? m.name : m;
+            return {
+              id: mId,
+              name: mName,
+              capabilities: getModelCapabilities(id, mId)
+            };
+          }),
           defaultModel: this.providers[id]?.defaultModel || ''
         }]))
       };
@@ -110,6 +152,13 @@
     async saveConfig(partial) {
       const existing = await this.getConfig();
       const config = mergeConfig({ ...existing, ...(partial || {}) });
+      if (partial && partial.selectedProvider && partial.selectedProvider !== existing.selectedProvider) {
+        // Enforce strict provider/model pairing: clear model if provider changes unless explicitly supplied
+        if (!partial.selectedModel) {
+          config.selectedModel = '';
+        }
+      }
+
       if (partial && partial.providers) {
         config.providers = { ...existing.providers };
         for (const [providerId, providerConfig] of Object.entries(partial.providers)) {
@@ -161,45 +210,60 @@
         throw new Error('No AI provider is configured. Privacy protection remains active.');
       }
 
-      // ── Screenshot inclusion decision ──────────────────────────────────────
-      // Read the user's screenshot-sharing toggle from storage.
+      if (providerId === 'local') {
+        throw new Error('Local browser inference is not available in this build');
+      }
+
+      // ── Provenance assertion if visual data is attached ──
+      const visual = sanitizedContext.screenshot;
+      if (visual) {
+        if (!sanitizedContext.visualProvenance || sanitizedContext.visualProvenance.sanitized !== true) {
+          throw new Error('UNTRUSTED_VISUAL_ARTIFACT');
+        }
+      }
+
+      // ── Screenshot inclusion decision ──
       const screenshotToggle = await new Promise(resolve =>
         chrome.storage.local.get([SCREENSHOT_TOGGLE_KEY], result =>
           resolve(result[SCREENSHOT_TOGGLE_KEY] !== false) // default ON
         )
       );
-      const providerSupportsVision = VISION_PROVIDERS.has(providerId);
-      const hasScreenshot = Boolean(sanitizedContext.screenshot);
-      const includeScreenshot = screenshotToggle && providerSupportsVision && hasScreenshot;
+      const isVisionCapable = this.isVisionCapable(providerId, config.selectedModel);
+      const hasScreenshot = Boolean(visual);
+      const includeScreenshot = screenshotToggle && isVisionCapable && hasScreenshot;
 
-      // Build the payload: always strip the raw screenshot first, then optionally reattach
+      // Build the payload: always strip the raw screenshot and internal provenance
       const providerContext = { ...sanitizedContext };
-      delete providerContext.screenshot; // default: strip
+      delete providerContext.screenshot;
+      delete providerContext.visualProvenance;
 
       if (includeScreenshot) {
-        // Double-check: value must still be a local data URL (assertSanitizedContext already verified)
+        // Enforce sanitized PNG format requirement
+        if (typeof visual !== 'string' || !visual.startsWith('data:image/png;base64,')) {
+          throw new Error('UNTRUSTED_VISUAL_ARTIFACT');
+        }
         providerContext.screenshotRedacted = true;
-        providerContext.screenshotDataUrl = sanitizedContext.screenshot;
+        providerContext.screenshotDataUrl = visual;
       } else {
-        providerContext.screenshotRedacted = hasScreenshot; // inform provider that visual data was captured but not forwarded
+        providerContext.screenshotRedacted = hasScreenshot; // inform provider that visual data exists locally but was excluded
       }
 
-      // Emit payload diagnostics (structured format per spec requirement)
-      console.group('[PROVIDER]');
-      console.info('Provider:', providerId.toUpperCase());
-      console.info('Model:', config.selectedModel || provider.defaultModel || 'default');
-      console.info('Vision supported:', providerSupportsVision ? 'TRUE' : 'FALSE');
-      console.info('Screenshot sharing:', screenshotToggle ? 'ON' : 'OFF');
-      console.info('Sanitized image attached:', includeScreenshot ? 'TRUE' : 'FALSE');
-      if (includeScreenshot) {
-        console.info('Screenshot sanitized: TRUE');
-        console.info('Screenshot bytes:', sanitizedContext.screenshot.length);
-      } else {
-        console.info('Screenshot reason:', !screenshotToggle ? 'TOGGLE OFF' : !providerSupportsVision ? 'PROVIDER UNSUPPORTED' : 'NO SCREENSHOT');
+      if (self.SIH_Logger) {
+        self.SIH_Logger.log('MODEL', 'request started', {
+          provider: providerId,
+          model: config.selectedModel || provider.defaultModel || 'default',
+          visionRequested: isVisionCapable && hasScreenshot,
+          visionAttached: includeScreenshot,
+          generation: sanitizedContext.visualProvenance?.generation || null,
+          tabId: sanitizedContext.visualProvenance?.tabId || null,
+          imageSanitized: true
+        });
+        self.SIH_Logger.log('PRIVACY', 'outgoing context approved', {
+          text: 'sanitized',
+          image: includeScreenshot ? 'sanitized' : 'none',
+          rawPII: false
+        });
       }
-      console.info('API request constructed: YES');
-      console.groupEnd();
-
 
       const rawResponse = await provider.chat(
         providerConfig.apiKey,
@@ -211,5 +275,13 @@
     }
   }
 
-  self.SIH_ModelManager = { ModelManager, STORAGE_KEY, DEFAULT_CONFIG, sanitizeUserMessage, assertSanitizedContext };
+  self.SIH_ModelManager = {
+    ModelManager,
+    STORAGE_KEY,
+    DEFAULT_CONFIG,
+    sanitizeUserMessage,
+    assertSanitizedContext,
+    isVisionCapableModel,
+    getModelCapabilities
+  };
 })();
