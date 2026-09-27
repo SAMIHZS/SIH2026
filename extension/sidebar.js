@@ -143,6 +143,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function isRestrictedUrl(url) {
+    if (!url) return false;
+    return (
+      url.startsWith('chrome://') ||
+      url.startsWith('chrome-extension://') ||
+      url.startsWith('edge://') ||
+      url.startsWith('about:') ||
+      url.startsWith('view-source:') ||
+      url.startsWith('devtools://')
+    );
+  }
+
   // ── 1. Context Sync with Background ──
   function fetchLatestContext() {
     logger.log('SIDEBAR', 'initialized'); // SIDEBAR_INIT
@@ -154,9 +166,25 @@ document.addEventListener('DOMContentLoaded', () => {
         showVisualUnavailableState('Could not retrieve context from browser.');
         return;
       }
-      if (response.tabId) currentTabId = response.tabId;
-      if (response.generation) currentGeneration = response.generation;
+      if (typeof response.tabId === 'number') currentTabId = response.tabId;
+      if (typeof response.generation === 'number') currentGeneration = response.generation;
       if (response.navigationIdentity) currentNavigationIdentity = response.navigationIdentity;
+      pendingRequestTabId = null;
+      pendingRequestGeneration = null;
+      cancelPendingConfirmation();
+
+      if (response.status === 'UNSUPPORTED_URL' || isRestrictedUrl(response.navigationIdentity)) {
+        setSidebarState('CONTEXT_UNAVAILABLE', response.statusMessage || 'Browser page — assistant unavailable on this page');
+        showVisualUnavailableState('Assistant unavailable on browser system pages.');
+        return;
+      }
+
+      if (response.status === 'CONTENT_UNAVAILABLE') {
+        setSidebarState('CONTEXT_UNAVAILABLE', response.statusMessage || 'Page context unavailable. Refresh the page to reconnect');
+        showVisualUnavailableState('Page context unavailable.');
+        return;
+      }
+
       if (response.sanitizedContext) {
         updateContext(response.sanitizedContext, response.detectionCount, response.mapping, response.isValid);
         if (response.isValid === false) {
@@ -232,9 +260,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (message.type === 'CONTEXT_UPDATE') {
       logger.log('CTX TRACE 17', 'sidebar received CONTEXT_READY');
       logger.log('SIDEBAR', `CONTEXT_READY_RECEIVED generation=${message.generation} currentGeneration=${currentGeneration} contextValid=${!!message.sanitizedContext}`);
-      if (message.tabId) currentTabId = message.tabId;
-      if (message.generation) currentGeneration = message.generation;
+      if (typeof message.tabId === 'number') currentTabId = message.tabId;
+      if (typeof message.generation === 'number') currentGeneration = message.generation;
       if (message.navigationIdentity) currentNavigationIdentity = message.navigationIdentity;
+
+      if (message.status === 'CONTENT_UNAVAILABLE' || message.status === 'UNSUPPORTED_URL' || message.status === 'TIMEOUT') {
+        const msg = message.statusMessage || (message.status === 'UNSUPPORTED_URL'
+          ? 'Browser page — assistant unavailable on this page'
+          : 'Page context unavailable. Refresh the page to reconnect');
+        setSidebarState('CONTEXT_UNAVAILABLE', msg);
+        showVisualUnavailableState(msg);
+        return;
+      }
+
       updateContext(message.sanitizedContext, message.detectionCount, message.mapping);
       if (message.visual) {
         updateVisualEvidence(message.visual);
@@ -1084,6 +1122,33 @@ chatEnabled=${sendBtn ? !sendBtn.disabled : 'unknown'}
   if (closeBtn) {
     closeBtn.addEventListener('click', () => {
       window.close();
+    });
+  }
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => {
+      logger.log('SIDEBAR', 'refresh clicked');
+      setSidebarState('READING_PAGE', 'Refreshing protected context…');
+      chrome.runtime.sendMessage({ type: 'REQUEST_CONTEXT_REFRESH', tabId: currentTabId }, () => {
+        fetchLatestContext();
+      });
+    });
+  }
+
+  const themeToggleBtn = document.getElementById('themeToggleBtn');
+  if (themeToggleBtn && window.SIH_Theme) {
+    function updateThemeBtnIcon() {
+      const isDark = document.documentElement.dataset.theme === 'dark';
+      themeToggleBtn.innerHTML = isDark
+        ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`
+        : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+    }
+    updateThemeBtnIcon();
+    themeToggleBtn.addEventListener('click', () => {
+      const current = document.documentElement.dataset.theme || 'light';
+      const next = current === 'dark' ? 'light' : 'dark';
+      window.SIH_Theme.setTheme(next);
+      updateThemeBtnIcon();
     });
   }
 

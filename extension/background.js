@@ -468,6 +468,131 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 /**
+ * Content-script dependency chain declared in manifest.json (exact order).
+ */
+const CONTENT_SCRIPT_FILES = [
+  'logger.js',
+  'detectors/domDetector.js',
+  'detectors/regexDetector.js',
+  'detectors/ocrDetector.js',
+  'vision/visualPipeline.js',
+  'metrics.js',
+  'perceptionSchema.js',
+  'detectionGate.js',
+  'detectionFusion.js',
+  'elementRegistry.js',
+  'grounding.js',
+  'sanitize.js',
+  'validate.js',
+  'execute.js',
+  'content.js'
+];
+
+function isRestrictedUrl(url) {
+  if (!url) return false;
+  return (
+    url.startsWith('chrome://') ||
+    url.startsWith('chrome-extension://') ||
+    url.startsWith('edge://') ||
+    url.startsWith('about:') ||
+    url.startsWith('view-source:') ||
+    url.startsWith('devtools://')
+  );
+}
+
+/**
+ * Ensure content script is available and responsive in the target tab.
+ * If genuinely absent (e.g. after extension reload), programmatically injects
+ * the exact manifest dependency chain once, bounded.
+ */
+async function ensureContentScriptAvailable(tabId) {
+  let tabUrl = '';
+  try {
+    const tabInfo = await chrome.tabs.get(tabId);
+    tabUrl = tabInfo.url || tabInfo.pendingUrl || '';
+  } catch (e) {
+    console.warn(`[SIH][CTX BOOTSTRAP] Failed to get tab info: ${e.message}`);
+    return { ok: false, reason: 'TAB_NOT_FOUND', error: e.message };
+  }
+
+  if (isRestrictedUrl(tabUrl)) {
+    console.info(`[SIH][CTX BOOTSTRAP]\ntabId=${tabId}\nurl=${tabUrl}\nping=FAILED\nreason=RESTRICTED_URL`);
+    return { ok: false, reason: 'RESTRICTED_URL', url: tabUrl };
+  }
+
+  // 1. Initial fast PING attempts (delays: 0ms, 150ms)
+  const initialDelays = [0, 150];
+  let pingOk = false;
+  for (let i = 0; i < initialDelays.length; i++) {
+    if (initialDelays[i] > 0) {
+      await new Promise(r => setTimeout(r, initialDelays[i]));
+    }
+    try {
+      console.info(`[SIH][CTX HANDSHAKE] PING_SEND attempt ${i+1}`);
+      const pong = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+      if (pong && pong.ok) {
+        console.info(`[SIH][CTX HANDSHAKE] PONG_RECEIVED`);
+        pingOk = true;
+        break;
+      }
+    } catch (e) {
+      console.info(`[SIH][CTX HANDSHAKE] PING_FAILED: ${e.message}`);
+    }
+  }
+
+  if (pingOk) {
+    console.info(`[SIH][CTX BOOTSTRAP]\ntabId=${tabId}\nurl=${tabUrl}\nping=SUCCESS`);
+    return { ok: true, injected: false };
+  }
+
+  console.info(`[SIH][CTX BOOTSTRAP]\ntabId=${tabId}\nurl=${tabUrl}\nping=FAILED`);
+
+  // 2. Programmatic injection fallback (exactly once, bounded)
+  if (!chrome.scripting || typeof chrome.scripting.executeScript !== 'function') {
+    console.error(`[SIH][CTX BOOTSTRAP]\ncontentScript=INJECTION_UNAVAILABLE\nrecovery=FAILED`);
+    return { ok: false, reason: 'SCRIPTING_API_UNAVAILABLE' };
+  }
+
+  console.info(`[SIH][CTX BOOTSTRAP]\ncontentScript=INJECTING`);
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: CONTENT_SCRIPT_FILES
+    });
+    console.info(`[SIH][CTX BOOTSTRAP]\ncontentScript=INJECTED`);
+  } catch (injectErr) {
+    console.error(`[SIH][CTX BOOTSTRAP]\ncontentScript=INJECTION_FAILED\nerror=${injectErr.message}\nrecovery=FAILED`);
+    return { ok: false, reason: 'INJECTION_FAILED', error: injectErr.message };
+  }
+
+  // 3. Post-injection PING attempts (delays: 50ms, 150ms, 300ms)
+  const postDelays = [50, 150, 300];
+  let postPongOk = false;
+  for (let i = 0; i < postDelays.length; i++) {
+    await new Promise(r => setTimeout(r, postDelays[i]));
+    try {
+      console.info(`[SIH][CTX HANDSHAKE] POST_INJECTION_PING attempt ${i+1}`);
+      const pong = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+      if (pong && pong.ok) {
+        console.info(`[SIH][CTX HANDSHAKE] POST_INJECTION_PONG_RECEIVED`);
+        postPongOk = true;
+        break;
+      }
+    } catch (e) {
+      console.info(`[SIH][CTX HANDSHAKE] POST_INJECTION_PING_FAILED: ${e.message}`);
+    }
+  }
+
+  if (postPongOk) {
+    console.info(`[SIH][CTX BOOTSTRAP]\npong=SUCCESS\nrecovery=SUCCESS`);
+    return { ok: true, injected: true };
+  }
+
+  console.error(`[SIH][CTX BOOTSTRAP]\npong=FAILED\nrecovery=FAILED`);
+  return { ok: false, reason: 'POST_INJECTION_PONG_TIMEOUT' };
+}
+
+/**
  * Fetch lightweight context from the tab's content script and wait for CONTEXT_READY.
  */
 function fetchAndBroadcastTabContext(tabId, generation, t0) {
@@ -479,46 +604,44 @@ function fetchAndBroadcastTabContext(tabId, generation, t0) {
     try {
       const tabInfo = await chrome.tabs.get(tabId);
       tabUrl = tabInfo.url || tabInfo.pendingUrl || '';
-      const isRestricted = tabUrl.startsWith('chrome://') || tabUrl.startsWith('chrome-extension://') || tabUrl.startsWith('edge://') || tabUrl.startsWith('about:');
-      if (isRestricted) {
-        console.info(`[SIH][CTX TX] URL restricted, skipping content script injection: ${tabUrl}`);
-        resolve(false);
-        return;
-      }
     } catch (e) {
       console.warn(`[SIH][CTX TX] Failed to get tab info: ${e.message}`);
     }
 
-    // PING with Bounded Retries
-    const delays = [0, 100, 300, 700];
-    let pingSuccess = false;
-    for (let i = 0; i < delays.length; i++) {
-      if (i > 0) {
-        await new Promise(r => setTimeout(r, delays[i]));
-      }
-      try {
-        console.info(`[SIH][CTX HANDSHAKE] PING_SEND attempt ${i+1}`);
-        const pong = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
-        if (pong && pong.ok) {
-          console.info(`[SIH][CTX HANDSHAKE] PONG_RECEIVED`);
-          pingSuccess = true;
-          break;
-        }
-      } catch (e) {
-        console.info(`[SIH][CTX HANDSHAKE] PING_FAILED: ${e.message}`);
-      }
-    }
-
-    if (!pingSuccess) {
-      console.error(`[SIH][CTX] CONTENT_UNAVAILABLE\ntabId=${tabId}\ngeneration=${generation}\nreason=Max retries reached without PONG`);
+    if (isRestrictedUrl(tabUrl)) {
+      console.info(`[SIH][CTX TX] URL restricted, skipping content script injection: ${tabUrl}`);
       broadcastToExtensionPages({
         type: 'CONTEXT_UPDATE',
         tabId,
         generation,
-        navigationIdentity: tabPerceptionState.get(tabId)?.navigationIdentity,
+        navigationIdentity: tabUrl,
         sanitizedContext: null,
         detectionCount: 0,
-        mapping: []
+        mapping: [],
+        status: 'UNSUPPORTED_URL',
+        statusMessage: 'Browser page — assistant unavailable on this page'
+      });
+      resolve(false);
+      return;
+    }
+
+    // Controlled Content-Script Availability / Recovery
+    const bootstrap = await ensureContentScriptAvailable(tabId);
+    if (!bootstrap.ok) {
+      const failureReason = bootstrap.reason || 'CONTENT_UNAVAILABLE';
+      console.error(`[SIH][CTX] CONTENT_UNAVAILABLE\ntabId=${tabId}\ngeneration=${generation}\nreason=${failureReason}`);
+      broadcastToExtensionPages({
+        type: 'CONTEXT_UPDATE',
+        tabId,
+        generation,
+        navigationIdentity: tabPerceptionState.get(tabId)?.navigationIdentity || tabUrl,
+        sanitizedContext: null,
+        detectionCount: 0,
+        mapping: [],
+        status: 'CONTENT_UNAVAILABLE',
+        statusMessage: bootstrap.reason === 'RESTRICTED_URL'
+          ? 'Browser page — assistant unavailable on this page'
+          : 'Page context unavailable. Refresh the page to reconnect'
       });
       resolve(false);
       return;
@@ -544,7 +667,9 @@ function fetchAndBroadcastTabContext(tabId, generation, t0) {
           navigationIdentity: tabPerceptionState.get(tabId)?.navigationIdentity,
           sanitizedContext: null,
           detectionCount: 0,
-          mapping: []
+          mapping: [],
+          status: 'TIMEOUT',
+          statusMessage: 'Page context response timed out'
         });
         resolve(false);
       }
@@ -575,7 +700,9 @@ function fetchAndBroadcastTabContext(tabId, generation, t0) {
             navigationIdentity: tabPerceptionState.get(tabId)?.navigationIdentity,
             sanitizedContext: null,
             detectionCount: 0,
-            mapping: []
+            mapping: [],
+            status: 'CONTENT_UNAVAILABLE',
+            statusMessage: 'Page context unavailable. Refresh the page to reconnect'
           });
           resolve(false);
         }
@@ -776,6 +903,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         } else {
           console.info(`[SIH][CONTEXT] GET_LATEST_CONTEXT: refresh already in progress for tab ${tabId}`);
         }
+      }
+
+      if (state && state.navigationIdentity && isRestrictedUrl(state.navigationIdentity)) {
+        sendResponse({
+          sanitizedContext: null,
+          tabId,
+          generation: state ? state.generation : 0,
+          navigationIdentity: state ? state.navigationIdentity : '',
+          status: 'UNSUPPORTED_URL',
+          statusMessage: 'Browser page — assistant unavailable on this page'
+        });
+        return false;
       }
 
       sendResponse({

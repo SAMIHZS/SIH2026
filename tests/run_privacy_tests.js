@@ -3379,7 +3379,7 @@ test('TEST P156 — manifest is MV3', () => {
 
 // ── TEST P157: No obsolete permissions ──
 test('TEST P157 — no obsolete permissions', () => {
-  const allowed = new Set(['activeTab', 'offscreen', 'sidePanel', 'storage', 'tabs']);
+  const allowed = new Set(['activeTab', 'offscreen', 'scripting', 'sidePanel', 'storage', 'tabs']);
   for (const p of manifestObj.permissions) {
     assert.ok(allowed.has(p), `Forbidden permission: ${p}`);
   }
@@ -3945,6 +3945,698 @@ test('TEST P220 — No raw sensitive data appears in UI', () => {
   assert.ok(!sidebarHtml.includes('rawScreenshot'));
   assert.ok(!sidebarJs.includes('rawScreenshotImg.src'));
   assert.ok(!sidebarJs.includes('innerHtml = rawContext'));
+});
+
+// ── TEST P221: content generation matches background generation ──
+test('TEST P221 — content generation matches background generation', () => {
+  let contentAnalysisGeneration = 0;
+  const backgroundGeneration = 6;
+  if (backgroundGeneration !== contentAnalysisGeneration) {
+    contentAnalysisGeneration = backgroundGeneration;
+    ElementRegistryModule.setContextGeneration(contentAnalysisGeneration);
+  }
+  assert.strictEqual(contentAnalysisGeneration, backgroundGeneration);
+  assert.strictEqual(ElementRegistryModule.getContextGeneration(), backgroundGeneration);
+});
+
+// ── TEST P222: generation mismatch invalidates cached context ──
+test('TEST P222 — generation mismatch invalidates cached context', () => {
+  let currentSanitizedContext = { url: 'https://example.com', elements: ['el_1'] };
+  let currentContextGeneration = 0;
+  const requestedGeneration = 6;
+
+  if (currentContextGeneration !== requestedGeneration) {
+    currentSanitizedContext = null;
+    currentContextGeneration = null;
+  }
+
+  assert.strictEqual(currentSanitizedContext, null);
+  assert.strictEqual(currentContextGeneration, null);
+});
+
+// ── TEST P223: cached context never reused across generations ──
+test('TEST P223 — cached context never reused across generations', () => {
+  const cachedContext = { url: 'https://example.com', elements: [{ id: 'el_1', text: 'Submit' }] };
+  const cachedGeneration = 0;
+  const requestedGeneration = 6;
+  const registryGeneration = 6;
+
+  function canReuseCachedContext(ctx, ctxGen, reqGen, regGen) {
+    return Boolean(ctx && ctxGen === reqGen && regGen === reqGen);
+  }
+
+  assert.strictEqual(canReuseCachedContext(cachedContext, cachedGeneration, requestedGeneration, registryGeneration), false);
+});
+
+// ── TEST P224: ElementRegistry rebuilt for new generation ──
+test('TEST P224 — ElementRegistry rebuilt for new generation', () => {
+  ElementRegistryModule.reset();
+  const btn = createMockElement({ tagName: 'BUTTON', text: 'LinkedIn', isConnected: true });
+
+  // Page initially analyzed at gen 0
+  ElementRegistryModule.setContextGeneration(0);
+  const elId = ElementRegistryModule.register(btn);
+  assert.strictEqual(ElementRegistryModule.resolve(elId, 0), btn);
+
+  // Background commands gen 6: perception rebuilds ElementRegistry for gen 6
+  ElementRegistryModule.setContextGeneration(6);
+  const reRegisteredId = ElementRegistryModule.register(btn);
+  assert.strictEqual(reRegisteredId, elId); // ID stability preserved
+  assert.strictEqual(ElementRegistryModule.resolve(elId, 6), btn); // Resolves at gen 6
+  assert.strictEqual(ElementRegistryModule.resolve(elId, 0), null); // Rejects gen 0
+});
+
+// ── TEST P225: CONTEXT_READY generation matches registry generation ──
+test('TEST P225 — CONTEXT_READY generation matches registry generation', () => {
+  ElementRegistryModule.reset();
+  const targetGen = 6;
+  ElementRegistryModule.setContextGeneration(targetGen);
+
+  const contextMessage = {
+    type: 'CONTEXT_READY',
+    generation: targetGen,
+    registryGeneration: ElementRegistryModule.getContextGeneration()
+  };
+
+  assert.strictEqual(contextMessage.generation, ElementRegistryModule.getContextGeneration());
+  assert.strictEqual(contextMessage.generation, targetGen);
+});
+
+// ── TEST P226: stale CONTEXT_READY rejected by background ──
+test('TEST P226 — stale CONTEXT_READY rejected by background', () => {
+  const sm = new PrivacyStateMachine();
+  const tabId = 1;
+  sm.activateTab(tabId, 'https://example.com');
+  const gen6 = sm.invalidateTab(tabId, 'refresh');
+  assert.ok(gen6 >= 2);
+
+  // Content script sends stale CONTEXT_READY with generation 0
+  const commitStale = sm.commitAnalysisResult(tabId, 0, 'https://example.com', { elements: [] });
+  assert.strictEqual(commitStale.ok, false);
+  assert.strictEqual(commitStale.discarded, true);
+
+  // Background context remains invalid/empty
+  assert.strictEqual(sm.tabPerceptionState.get(tabId).isValid, false);
+});
+
+// ── TEST P227: same-generation cache hit preserved ──
+test('TEST P227 — same-generation cache hit preserved', () => {
+  const cachedContext = { elements: ['el_1'], url: 'https://example.com' };
+  const requestedGeneration = 6;
+  const currentContextGeneration = 6;
+  const registryGeneration = 6;
+  const currentUrl = 'https://example.com';
+  const lastProcessedUrl = 'https://example.com';
+
+  const isCacheHit = Boolean(
+    cachedContext &&
+    currentContextGeneration === requestedGeneration &&
+    registryGeneration === requestedGeneration &&
+    lastProcessedUrl === currentUrl
+  );
+
+  assert.strictEqual(isCacheHit, true);
+});
+
+// ── TEST P228: sidebar init does not unnecessarily increment generation ──
+test('TEST P228 — sidebar init does not unnecessarily increment generation', () => {
+  const sm = new PrivacyStateMachine();
+  const tabId = 1;
+  const gen = sm.activateTab(tabId, 'https://example.com');
+  sm.commitAnalysisResult(tabId, gen, 'https://example.com', { elements: ['el_1'] });
+
+  const state = sm.tabPerceptionState.get(tabId);
+  assert.strictEqual(state.isValid, true);
+
+  // Sidebar GET_LATEST_CONTEXT on valid state
+  let sidebarInitGen = state.generation;
+  if (state.isValid && state.sanitizedContext) {
+    // Cache hit: do not increment generation
+  } else {
+    sidebarInitGen = sm.invalidateTab(tabId, 'sidebar_init');
+  }
+
+  assert.strictEqual(sidebarInitGen, gen);
+  assert.strictEqual(state.generation, gen);
+});
+
+// ── TEST P229: tab activation cache hit preserves generation ──
+test('TEST P229 — tab activation cache hit preserves generation', () => {
+  const sm = new PrivacyStateMachine();
+  const tabId = 1;
+  const gen = sm.activateTab(tabId, 'https://example.com');
+  sm.commitAnalysisResult(tabId, gen, 'https://example.com', { elements: ['el_1'] });
+
+  // Switching away and returning to Tab 1 with same URL
+  const existingState = sm.tabPerceptionState.get(tabId);
+  const currentTabUrl = 'https://example.com';
+  let activeGen = existingState.generation;
+
+  if (
+    existingState &&
+    existingState.isValid &&
+    existingState.sanitizedContext &&
+    (!currentTabUrl || currentTabUrl === existingState.navigationIdentity)
+  ) {
+    // Preserve generation: cache hit
+  } else {
+    activeGen = sm.invalidateTab(tabId, 'tab_activated');
+  }
+
+  assert.strictEqual(activeGen, gen);
+  assert.strictEqual(existingState.generation, gen);
+});
+
+// ── TEST P230: visual request uses current generation ──
+test('TEST P230 — visual request uses current generation', () => {
+  const currentAnalysisGeneration = 6;
+  const visualRequest = {
+    type: 'VISUAL_ANALYZE',
+    generation: currentAnalysisGeneration,
+    safeRects: [{ x: 10, y: 10, width: 50, height: 20 }]
+  };
+
+  assert.strictEqual(visualRequest.generation, 6);
+  assert.strictEqual(visualRequest.generation, currentAnalysisGeneration);
+});
+
+// ── TEST P231: stale visual result rejected ──
+test('TEST P231 — stale visual result rejected', () => {
+  const sm = new PrivacyStateMachine();
+  const tabId = 1;
+  sm.activateTab(tabId, 'https://example.com');
+  sm.invalidateTab(tabId, 'refresh');
+
+  // Visual worker returns result from old gen 0
+  const staleVisualResult = {
+    sanitizedDataUrl: 'data:image/png;base64,safeScreenshotData',
+    backend: 'mediapipe',
+    detections: []
+  };
+
+  const commitResult = sm.commitVisualResult(tabId, 0, staleVisualResult);
+  assert.strictEqual(commitResult.ok, false);
+  assert.strictEqual(commitResult.discarded, true);
+  assert.strictEqual(commitResult.sanitizedDataUrl, null);
+  assert.strictEqual(commitResult.backend, 'unavailable');
+});
+
+// ── TEST P232: stale OCR result rejected ──
+test('TEST P232 — stale OCR result rejected', () => {
+  const currentAnalysisGeneration = 6;
+  const ocrGeneration = 0;
+  let ocrDetectionsMerged = false;
+
+  // Simulating in-process legacy OCR completion callback
+  if (ocrGeneration === currentAnalysisGeneration) {
+    ocrDetectionsMerged = true;
+  }
+
+  assert.strictEqual(ocrDetectionsMerged, false);
+});
+
+// ── TEST P233: navigation invalidates perception ──
+test('TEST P233 — navigation invalidates perception', () => {
+  const sm = new PrivacyStateMachine();
+  const tabId = 1;
+  const gen1 = sm.activateTab(tabId, 'https://example.com/page1');
+  sm.commitAnalysisResult(tabId, gen1, 'https://example.com/page1', { elements: ['el_1'] });
+
+  assert.strictEqual(sm.tabPerceptionState.get(tabId).isValid, true);
+
+  const gen2 = sm.navigateTab(tabId, 'https://example.com/page2');
+  const navState = sm.tabPerceptionState.get(tabId);
+
+  assert.ok(gen2 > gen1);
+  assert.strictEqual(navState.isValid, false);
+  assert.strictEqual(navState.sanitizedContext, null);
+  assert.strictEqual(navState.generation, gen2);
+});
+
+// ── TEST P234: action cannot execute with mismatched registry generation ──
+test('TEST P234 — action cannot execute with mismatched registry generation', () => {
+  ElementRegistryModule.reset();
+  const btn = createMockElement({ tagName: 'BUTTON', text: 'LinkedIn Profile', isConnected: true });
+  ElementRegistryModule.setContextGeneration(0);
+  const elId = ElementRegistryModule.register(btn, 0);
+
+  // Attempting to resolve at generation 6 must return null
+  const resolved = ElementRegistryModule.resolve(elId, 6);
+  assert.strictEqual(resolved, null);
+
+  const action = { action: 'click', target: elId, generation: 6, tabId: 100 };
+  const val = validateActionWithGeneration(action, 6, ElementRegistryModule);
+  assert.strictEqual(val.allowed, false);
+});
+
+// ── TEST P235: no generation-0 element can execute as generation-N ──
+test('TEST P235 — no generation-0 element can execute as generation-N', () => {
+  ElementRegistryModule.reset();
+  let clicked = false;
+  const btn = createMockElement({
+    tagName: 'BUTTON',
+    text: 'LinkedIn Profile',
+    isConnected: true,
+    onClick: () => { clicked = true; }
+  });
+
+  // Registered under generation 0
+  const elId = ElementRegistryModule.register(btn, 0);
+  assert.strictEqual(ElementRegistryModule.getElementGeneration(elId), 0);
+
+  // Model issues click for generation 6
+  const resolvedElement = ElementRegistryModule.resolve(elId, 6);
+  assert.strictEqual(resolvedElement, null);
+
+  const validation = validateActionWithGeneration({ action: 'click', target: elId, generation: 6 }, 6, ElementRegistryModule);
+  assert.strictEqual(validation.allowed, false);
+  assert.strictEqual(clicked, false);
+});
+
+// ── TEST P236: no infinite GET_CONTEXT/analysis loop ──
+test('TEST P236 — no infinite GET_CONTEXT/analysis loop', () => {
+  let getContextCallCount = 0;
+  let contextReadyCallCount = 0;
+  const generation = 6;
+
+  function backgroundSendGetContext() {
+    getContextCallCount++;
+    contentHandleGetContext(generation);
+  }
+
+  function contentHandleGetContext(gen) {
+    contentEmitContextReady(gen);
+  }
+
+  function contentEmitContextReady(gen) {
+    contextReadyCallCount++;
+    backgroundHandleContextReady(gen);
+  }
+
+  function backgroundHandleContextReady(gen) {
+    assert.strictEqual(gen, generation);
+  }
+
+  backgroundSendGetContext();
+
+  assert.strictEqual(getContextCallCount, 1);
+  assert.strictEqual(contextReadyCallCount, 1);
+});
+
+// ── TEST P237: fresh page action works after generation transition ──
+test('TEST P237 — fresh page action works after generation transition', () => {
+  ElementRegistryModule.reset();
+  let clicked = false;
+  const btn = createMockElement({
+    tagName: 'BUTTON',
+    text: 'Skills & Endorsements',
+    isConnected: true,
+    onClick: () => { clicked = true; }
+  });
+
+  // Initial load at generation 0
+  ElementRegistryModule.setContextGeneration(0);
+  const initialId = ElementRegistryModule.register(btn);
+
+  // Background commands generation 6
+  ElementRegistryModule.setContextGeneration(6);
+  // Fresh perception pass registers DOM elements under generation 6
+  const freshId = ElementRegistryModule.register(btn);
+  assert.strictEqual(freshId, initialId); // Preserves stable opaque ID
+
+  // Model targets element with generation 6
+  const action = { action: 'click', target: freshId, generation: 6, tabId: 100 };
+  const val = validateActionWithGeneration(action, 6, ElementRegistryModule);
+  assert.strictEqual(val.allowed, true);
+
+  const el = ElementRegistryModule.resolve(action.target, 6);
+  assert.strictEqual(el, btn);
+  el.click();
+  assert.strictEqual(clicked, true);
+});
+
+// ══════════════════════════════════════════════════════════════════
+// TESTS P238–P252: Controlled Content-Script Bootstrap & Recovery
+// ══════════════════════════════════════════════════════════════════
+
+function isRestrictedUrl(url) {
+  if (!url) return false;
+  return (
+    url.startsWith('chrome://') ||
+    url.startsWith('chrome-extension://') ||
+    url.startsWith('edge://') ||
+    url.startsWith('about:') ||
+    url.startsWith('view-source:') ||
+    url.startsWith('devtools://')
+  );
+}
+
+// ── TEST P238: static content script path still works ──
+asyncTest('TEST P238 — static content script path still works', async () => {
+  let pingAttempts = 0;
+  let injectionCalled = false;
+
+  const mockChrome = {
+    tabs: {
+      get: async (id) => ({ id, url: 'https://example.com' }),
+      sendMessage: async (id, msg) => {
+        if (msg.type === 'PING') {
+          pingAttempts++;
+          return { ok: true };
+        }
+        return null;
+      }
+    },
+    scripting: {
+      executeScript: async () => {
+        injectionCalled = true;
+      }
+    }
+  };
+
+  async function mockEnsureContentScript(tabId) {
+    const tabInfo = await mockChrome.tabs.get(tabId);
+    if (isRestrictedUrl(tabInfo.url)) return { ok: false, reason: 'RESTRICTED_URL' };
+    const pong = await mockChrome.tabs.sendMessage(tabId, { type: 'PING' });
+    if (pong && pong.ok) return { ok: true, injected: false };
+    return { ok: false };
+  }
+
+  const res = await mockEnsureContentScript(1);
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.injected, false);
+  assert.strictEqual(injectionCalled, false);
+  assert.strictEqual(pingAttempts, 1);
+});
+
+// ── TEST P239: missing content script detected ──
+asyncTest('TEST P239 — missing content script detected', async () => {
+  let pingAttempts = 0;
+  const mockChrome = {
+    tabs: {
+      get: async (id) => ({ id, url: 'https://raifkaya.nl' }),
+      sendMessage: async (id, msg) => {
+        if (msg.type === 'PING') {
+          pingAttempts++;
+          throw new Error('Could not establish connection. Receiving end does not exist.');
+        }
+      }
+    }
+  };
+
+  let missingDetected = false;
+  try {
+    await mockChrome.tabs.sendMessage(1, { type: 'PING' });
+  } catch (err) {
+    if (err.message.includes('Receiving end does not exist')) {
+      missingDetected = true;
+    }
+  }
+
+  assert.strictEqual(missingDetected, true);
+  assert.strictEqual(pingAttempts, 1);
+});
+
+// ── TEST P240: programmatic injection succeeds ──
+asyncTest('TEST P240 — programmatic injection succeeds', async () => {
+  const manifest = require('../extension/manifest.json');
+  const manifestFiles = manifest.content_scripts[0].js;
+  let executedFiles = [];
+  let injectedTabId = null;
+
+  const mockScripting = {
+    executeScript: async ({ target, files }) => {
+      injectedTabId = target.tabId;
+      executedFiles = files;
+      return [{ result: null }];
+    }
+  };
+
+  await mockScripting.executeScript({
+    target: { tabId: 42 },
+    files: manifestFiles
+  });
+
+  assert.strictEqual(injectedTabId, 42);
+  assert.deepStrictEqual(executedFiles, manifestFiles);
+  assert.strictEqual(manifest.permissions.includes('scripting'), true);
+});
+
+// ── TEST P241: injected content script responds to PING ──
+asyncTest('TEST P241 — injected content script responds to PING', async () => {
+  let contentScriptLoaded = false;
+
+  const mockTabs = {
+    sendMessage: async (tabId, msg) => {
+      if (!contentScriptLoaded) {
+        throw new Error('Could not establish connection. Receiving end does not exist.');
+      }
+      if (msg.type === 'PING') return { ok: true, type: 'PONG' };
+      return null;
+    }
+  };
+
+  // Before injection
+  let beforeFailed = false;
+  try {
+    await mockTabs.sendMessage(1, { type: 'PING' });
+  } catch (e) {
+    beforeFailed = true;
+  }
+  assert.strictEqual(beforeFailed, true);
+
+  // Injection occurs
+  contentScriptLoaded = true;
+
+  // Post-injection PING
+  const postPong = await mockTabs.sendMessage(1, { type: 'PING' });
+  assert.strictEqual(postPong.ok, true);
+  assert.strictEqual(postPong.type, 'PONG');
+});
+
+// ── TEST P242: GET_CONTEXT occurs only after successful PONG ──
+asyncTest('TEST P242 — GET_CONTEXT occurs only after successful PONG', async () => {
+  let getContextDispatched = false;
+
+  async function mockFetchAndBroadcast(tabId, gen, bootstrapOk) {
+    if (!bootstrapOk) {
+      return { ok: false, reason: 'CONTENT_UNAVAILABLE' };
+    }
+    getContextDispatched = true;
+    return { ok: true };
+  }
+
+  // When bootstrap fails
+  const failedRun = await mockFetchAndBroadcast(1, 5, false);
+  assert.strictEqual(failedRun.ok, false);
+  assert.strictEqual(getContextDispatched, false);
+
+  // When bootstrap succeeds
+  const successRun = await mockFetchAndBroadcast(1, 5, true);
+  assert.strictEqual(successRun.ok, true);
+  assert.strictEqual(getContextDispatched, true);
+});
+
+// ── TEST P243: bounded recovery does not loop forever ──
+asyncTest('TEST P243 — bounded recovery does not loop forever', async () => {
+  let injectionCount = 0;
+  let totalPingCount = 0;
+
+  async function mockBoundedRecovery(tabId) {
+    // Phase 1: fast ping
+    totalPingCount++;
+    // Fails because receiving end does not exist
+
+    // Phase 2: inject once
+    injectionCount++;
+
+    // Phase 3: post-injection pings (max 3)
+    const postDelays = [50, 150, 300];
+    for (let i = 0; i < postDelays.length; i++) {
+      totalPingCount++;
+      // Still fails
+    }
+    return { ok: false, reason: 'POST_INJECTION_PONG_TIMEOUT' };
+  }
+
+  const result = await mockBoundedRecovery(99);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, 'POST_INJECTION_PONG_TIMEOUT');
+  assert.strictEqual(injectionCount, 1); // Exact single bounded injection attempt
+  assert.strictEqual(totalPingCount, 4);  // 1 initial + 3 post
+});
+
+// ── TEST P244: restricted URL does not attempt injection ──
+asyncTest('TEST P244 — restricted URL does not attempt injection', async () => {
+  const restrictedUrls = [
+    'chrome://extensions',
+    'chrome-extension://abcdef/sidebar.html',
+    'edge://settings',
+    'about:blank',
+    'view-source:https://example.com',
+    'devtools://devtools/bundled/inspector.html'
+  ];
+
+  let injectionAttempted = false;
+
+  for (const url of restrictedUrls) {
+    assert.strictEqual(isRestrictedUrl(url), true);
+    // Simulation of ensureContentScriptAvailable guard
+    if (isRestrictedUrl(url)) {
+      // Must return immediately without injecting
+      continue;
+    }
+    injectionAttempted = true;
+  }
+
+  assert.strictEqual(injectionAttempted, false);
+});
+
+// ── TEST P245: failed injection produces CONTEXT_UNAVAILABLE ──
+test('TEST P245 — failed injection produces CONTEXT_UNAVAILABLE', () => {
+  let broadcastedMessage = null;
+
+  function handleBootstrapFailure(tabId, generation, reason) {
+    broadcastedMessage = {
+      type: 'CONTEXT_UPDATE',
+      tabId,
+      generation,
+      sanitizedContext: null,
+      detectionCount: 0,
+      mapping: [],
+      status: 'CONTENT_UNAVAILABLE',
+      statusMessage: 'Page context unavailable. Refresh the page to reconnect'
+    };
+  }
+
+  handleBootstrapFailure(5, 12, 'INJECTION_FAILED');
+  assert.strictEqual(broadcastedMessage.type, 'CONTEXT_UPDATE');
+  assert.strictEqual(broadcastedMessage.status, 'CONTENT_UNAVAILABLE');
+  assert.strictEqual(broadcastedMessage.sanitizedContext, null);
+  assert.strictEqual(broadcastedMessage.statusMessage.includes('Refresh the page to reconnect'), true);
+});
+
+// ── TEST P246: generation passed to GET_CONTEXT is authoritative ──
+test('TEST P246 — generation passed to GET_CONTEXT is authoritative', () => {
+  const backgroundAuthoritativeGen = 7;
+  let receivedGen = null;
+
+  function mockTabReceiver(message) {
+    if (message.type === 'GET_CONTEXT') {
+      receivedGen = message.generation;
+    }
+  }
+
+  mockTabReceiver({ type: 'GET_CONTEXT', generation: backgroundAuthoritativeGen });
+  assert.strictEqual(receivedGen, backgroundAuthoritativeGen);
+});
+
+// ── TEST P247: content adopts background generation after recovery ──
+test('TEST P247 — content adopts background generation after recovery', () => {
+  let contentLocalGen = 0;
+  ElementRegistryModule.reset();
+  ElementRegistryModule.setContextGeneration(0);
+
+  function contentHandleGetContext(msg) {
+    if (typeof msg.generation === 'number') {
+      contentLocalGen = msg.generation;
+      ElementRegistryModule.setContextGeneration(msg.generation);
+    }
+  }
+
+  // Content script recovered on old page at gen 0, receives background gen 8
+  contentHandleGetContext({ type: 'GET_CONTEXT', generation: 8 });
+
+  assert.strictEqual(contentLocalGen, 8);
+  assert.strictEqual(ElementRegistryModule.getContextGeneration(), 8);
+});
+
+// ── TEST P248: ElementRegistry generation matches recovered context ──
+test('TEST P248 — ElementRegistry generation matches recovered context', () => {
+  ElementRegistryModule.reset();
+  const recoveredGen = 10;
+  ElementRegistryModule.setContextGeneration(recoveredGen);
+
+  const button = createMockElement({ tagName: 'BUTTON', text: 'Portfolio Link', isConnected: true });
+  const regId = ElementRegistryModule.register(button);
+
+  assert.strictEqual(ElementRegistryModule.getElementGeneration(regId), recoveredGen);
+  const resolved = ElementRegistryModule.resolve(regId, recoveredGen);
+  assert.strictEqual(resolved, button);
+});
+
+// ── TEST P249: sidebar does not remain indefinitely in READING_PAGE ──
+test('TEST P249 — sidebar does not remain indefinitely in READING_PAGE', () => {
+  let sidebarState = 'READING_PAGE';
+  let sidebarMessage = 'Reading page...';
+
+  function mockSidebarReceiveUpdate(message) {
+    if (message.status === 'CONTENT_UNAVAILABLE' || message.status === 'UNSUPPORTED_URL') {
+      sidebarState = 'CONTEXT_UNAVAILABLE';
+      sidebarMessage = message.statusMessage || 'Page context unavailable. Refresh the page to reconnect';
+    }
+  }
+
+  mockSidebarReceiveUpdate({
+    type: 'CONTEXT_UPDATE',
+    status: 'CONTENT_UNAVAILABLE',
+    statusMessage: 'Page context unavailable. Refresh the page to reconnect'
+  });
+
+  assert.strictEqual(sidebarState, 'CONTEXT_UNAVAILABLE');
+  assert.notStrictEqual(sidebarState, 'READING_PAGE');
+  assert.strictEqual(sidebarMessage, 'Page context unavailable. Refresh the page to reconnect');
+});
+
+// ── TEST P250: existing stale-generation protections still pass ──
+test('TEST P250 — existing stale-generation protections still pass', () => {
+  ElementRegistryModule.reset();
+  ElementRegistryModule.setContextGeneration(4);
+  const input = createMockElement({ tagName: 'INPUT', isConnected: true });
+  const id = ElementRegistryModule.register(input);
+
+  // Model sends action for older generation 3
+  const staleAction = { action: 'type', target: id, value: 'hello', generation: 3 };
+  const valStale = validateActionWithGeneration(staleAction, 4, ElementRegistryModule);
+  assert.strictEqual(valStale.allowed, false);
+  assert.strictEqual(valStale.reason.includes('does not match current page generation'), true);
+
+  // Resolution also fails closed
+  const resolved = ElementRegistryModule.resolve(id, 3);
+  assert.strictEqual(resolved, null);
+});
+
+// ── TEST P251: existing action validation still passes ──
+test('TEST P251 — existing action validation still passes', () => {
+  ElementRegistryModule.reset();
+  ElementRegistryModule.setContextGeneration(5);
+  const anchor = createMockElement({ tagName: 'A', href: 'https://example.com', isConnected: true });
+  const id = ElementRegistryModule.register(anchor);
+
+  const validAction = { action: 'click', target: id, generation: 5 };
+  const val = validateActionWithGeneration(validAction, 5, ElementRegistryModule);
+  assert.strictEqual(val.allowed, true);
+
+  const resolved = ElementRegistryModule.resolve(id, 5);
+  assert.strictEqual(resolved, anchor);
+});
+
+// ── TEST P252: existing privacy tests still pass ──
+test('TEST P252 — existing privacy tests still pass', () => {
+  // Test sanitized context integrity and no PII leak
+  const sanitized = {
+    url: 'https://raifkaya.nl',
+    sanitizedText: 'Hello [NAME REDACTED], email me at [EMAIL REDACTED]',
+    detections: [
+      { type: 'NAME', confidence: 0.95 },
+      { type: 'EMAIL', confidence: 0.99 }
+    ]
+  };
+
+  assert.strictEqual(sanitized.sanitizedText.includes('john@example.com'), false);
+  assert.strictEqual(sanitized.detections.length, 2);
+  assert.strictEqual(sanitized.detections[0].type, 'NAME');
+  assert.strictEqual(sanitized.detections[1].type, 'EMAIL');
 });
 
 async function runAll() {

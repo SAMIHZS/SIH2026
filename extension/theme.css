@@ -1,128 +1,211 @@
 /* ═══════════════════════════════════════════════════════
    theme.css — SIH26171 Privacy Assistant
-   Premium design tokens for light + dark themes
-   Accent: Refined Indigo-Violet
-═══════════════════════════════════════════════════════ */
+   Design System: Warm Cream + Coral + Dark Product Surfaces
+   Editorial, Calm, Trustworthy, Privacy-First
+   ═══════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ══════════════════════════════
-   LIGHT THEME (default)
-══════════════════════════════ */
+   1. LIGHT THEME (Default)
+   Warm Cream Canvas + Coral Primary
+   ══════════════════════════════ */
 :root,
 [data-theme="light"],
 .theme-light {
   color-scheme: light;
 
-  /* Backgrounds */
-  --bg:             #F5F4F2;
-  --surface:        #FEFEFE;
-  --surface-subtle: #EDECEA;
-  --surface-hover:  #E5E3DF;
-  --surface-raised: #FFFFFF;
+  /* Core Canvas & Surfaces */
+  --color-canvas:                 #faf9f5;
+  --color-surface-soft:           #f5f0e8;
+  --color-surface-card:           #efe9de;
+  --color-surface-cream-strong:   #e8e0d2;
 
-  /* Borders */
-  --border:         #DDD9D4;
-  --border-subtle:  #E8E5E0;
-  --border-strong:  #C0BCB5;
+  /* Dark Product Surfaces (Code, mockups, What AI Sees) */
+  --color-surface-dark:           #181715;
+  --color-surface-dark-elevated:  #252320;
+  --color-surface-dark-soft:      #1f1e1b;
 
-  /* Text */
-  --text-primary:   #1A1916;
-  --text-secondary: #6A6460;
-  --text-tertiary:  #9B948C;
+  /* Brand Primary (Anthropic/Warm Coral) */
+  --color-primary:                #cc785c;
+  --color-primary-active:         #a9583e;
+  --color-primary-disabled:       #e6dfd8;
 
-  /* Accent — Refined Indigo */
-  --accent:         #5B57E8;
-  --accent-hover:   #4946D0;
-  --accent-subtle:  #ECEAFD;
-  --accent-muted:   rgba(91,87,232,0.18);
-  --accent-fg:      #FFFFFF;
+  /* Accents */
+  --color-accent-teal:            #5db8a6;
+  --color-accent-amber:           #e8a55a;
 
-  /* Status */
-  --success:        #2A9E68;
-  --success-subtle: #E4F5EC;
-  --success-fg:     #1D7A50;
+  /* Typography / Inks */
+  --color-ink:                    #141413;
+  --color-body-strong:            #252523;
+  --color-body:                   #3d3d3a;
+  --color-muted:                  #6c6a64;
+  --color-muted-soft:             #8e8b82;
 
-  --warning:        #C07A0A;
-  --warning-subtle: #FDF2DF;
+  /* Dividers & Borders */
+  --color-hairline:               #e6dfd8;
+  --color-hairline-soft:          #ebe6df;
 
-  --danger:         #C83939;
-  --danger-subtle:  #FDECEC;
-  --danger-fg:      #A02E2E;
+  /* Semantics */
+  --color-success:                #5db872;
+  --color-warning:                #d4a017;
+  --color-error:                  #c64545;
 
-  /* Typography */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'Cascadia Code', 'Geist Mono', Consolas, 'Courier New', monospace;
+  /* Text on specific surfaces */
+  --color-on-primary:             #ffffff;
+  --color-on-dark:                #faf9f5;
+  --color-on-dark-soft:           #a09d96;
 
-  /* Radii */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  /* ── Backward Compatibility Aliases ── */
+  --bg:                           var(--color-canvas);
+  --surface:                      var(--color-surface-soft);
+  --surface-subtle:               var(--color-surface-card);
+  --surface-hover:                var(--color-surface-cream-strong);
+  --surface-raised:               #ffffff;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(26,25,22,0.08), 0 1px 2px rgba(26,25,22,0.05);
-  --shadow-md: 0 4px 12px rgba(26,25,22,0.10), 0 2px 5px rgba(26,25,22,0.06);
-  --shadow-lg: 0 8px 28px rgba(26,25,22,0.12), 0 4px 12px rgba(26,25,22,0.07);
+  --border:                       var(--color-hairline);
+  --border-subtle:                var(--color-hairline-soft);
+  --border-strong:                #d4ccbf;
 
-  --accent-glow: 0 0 0 3px rgba(91,87,232,0.16);
+  --text-primary:                 var(--color-ink);
+  --text-secondary:               var(--color-body);
+  --text-tertiary:                var(--color-muted);
+
+  --accent:                       var(--color-primary);
+  --accent-hover:                 var(--color-primary-active);
+  --accent-subtle:                rgba(204, 120, 92, 0.12);
+  --accent-muted:                 rgba(204, 120, 92, 0.22);
+  --accent-fg:                    var(--color-on-primary);
+
+  --success:                      var(--color-success);
+  --success-subtle:               rgba(93, 184, 114, 0.15);
+  --success-fg:                   #3a8a4d;
+
+  --warning:                      var(--color-warning);
+  --warning-subtle:               rgba(212, 160, 23, 0.15);
+
+  --danger:                       var(--color-error);
+  --danger-subtle:                rgba(198, 69, 69, 0.14);
+  --danger-fg:                    #a32e2e;
+
+  /* Spacing Scale (4px base unit) */
+  --space-1:                      4px;
+  --space-2:                      8px;
+  --space-3:                      12px;
+  --space-4:                      16px;
+  --space-5:                      20px;
+  --space-6:                      24px;
+  --space-8:                      32px;
+  --space-12:                     48px;
+
+  /* Radii Scale */
+  --radius-xs:                    4px;
+  --radius-sm:                    6px;
+  --radius-md:                    8px;
+  --radius-lg:                    12px;
+  --radius-xl:                    16px;
+  --radius-pill:                  9999px;
+
+  /* Typography Stacks */
+  --font-display:                 'Cormorant Garamond', 'Tiempos Headline', 'Copernicus', Georgia, Garamond, serif;
+  --font-sans:                    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono:                    'JetBrains Mono', 'Cascadia Code', 'Geist Mono', Consolas, monospace;
+
+  /* Subtle Elevation (Color-block first, shadows rare) */
+  --shadow-sm:                    0 1px 3px rgba(20, 20, 19, 0.08);
+  --shadow-md:                    0 2px 6px rgba(20, 20, 19, 0.09);
+  --shadow-lg:                    0 6px 18px rgba(20, 20, 19, 0.11);
+  --accent-glow:                  0 0 0 3px rgba(204, 120, 92, 0.20);
 }
 
 /* ══════════════════════════════
-   DARK THEME
-══════════════════════════════ */
+   2. DARK THEME
+   Warm Dark Navy Surfaces + Coral Accent
+   ══════════════════════════════ */
 [data-theme="dark"],
 .theme-dark {
   color-scheme: dark;
 
-  /* Backgrounds — warm charcoal, not pure black */
-  --bg:             #16151C;
-  --surface:        #1D1C25;
-  --surface-subtle: #232130;
-  --surface-hover:  #2B2A38;
-  --surface-raised: #242330;
+  /* Dark Surfaces (no pure black) */
+  --color-canvas:                 #181715;
+  --color-surface-soft:           #1f1e1b;
+  --color-surface-card:           #252320;
+  --color-surface-cream-strong:   #2e2b27;
 
-  /* Borders */
-  --border:         #302E3E;
-  --border-subtle:  #28263A;
-  --border-strong:  #42405A;
+  --color-surface-dark:           #141413;
+  --color-surface-dark-elevated:  #2b2824;
+  --color-surface-dark-soft:      #1c1a17;
 
-  /* Text */
-  --text-primary:   #EEECf8;
-  --text-secondary: #A09BB8;
-  --text-tertiary:  #6B677E;
+  /* Primary remains Signature Coral */
+  --color-primary:                #cc785c;
+  --color-primary-active:         #a9583e;
+  --color-primary-disabled:       #3a3733;
 
-  /* Accent */
-  --accent:         #8280F2;
-  --accent-hover:   #9896F8;
-  --accent-subtle:  rgba(130,128,242,0.13);
-  --accent-muted:   rgba(130,128,242,0.26);
-  --accent-fg:      #FFFFFF;
+  /* Accents */
+  --color-accent-teal:            #5db8a6;
+  --color-accent-amber:           #e8a55a;
 
-  /* Status */
-  --success:        #38C98A;
-  --success-subtle: rgba(56,201,138,0.13);
-  --success-fg:     #28A870;
+  /* Typography / Lights */
+  --color-ink:                    #faf9f5;
+  --color-body-strong:            #efe9de;
+  --color-body:                   #d2cdc4;
+  --color-muted:                  #a09d96;
+  --color-muted-soft:             #706e67;
 
-  --warning:        #E8A030;
-  --warning-subtle: rgba(232,160,48,0.13);
+  /* Dividers & Borders */
+  --color-hairline:               #2d2b27;
+  --color-hairline-soft:          #23211e;
 
-  --danger:         #F06A6A;
-  --danger-subtle:  rgba(240,106,106,0.13);
-  --danger-fg:      #D45050;
+  /* Semantics */
+  --color-success:                #5db872;
+  --color-warning:                #e8a55a;
+  --color-error:                  #e05d5d;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.32), 0 1px 2px rgba(0,0,0,0.22);
-  --shadow-md: 0 4px 14px rgba(0,0,0,0.42), 0 2px 6px rgba(0,0,0,0.26);
-  --shadow-lg: 0 8px 30px rgba(0,0,0,0.55), 0 4px 14px rgba(0,0,0,0.32);
+  --color-on-primary:             #ffffff;
+  --color-on-dark:                #faf9f5;
+  --color-on-dark-soft:           #a09d96;
 
-  --accent-glow: 0 0 0 3px rgba(130,128,242,0.24);
+  /* ── Backward Compatibility Aliases ── */
+  --bg:                           var(--color-canvas);
+  --surface:                      var(--color-surface-soft);
+  --surface-subtle:               var(--color-surface-card);
+  --surface-hover:                var(--color-surface-cream-strong);
+  --surface-raised:               var(--color-surface-dark-elevated);
+
+  --border:                       var(--color-hairline);
+  --border-subtle:                var(--color-hairline-soft);
+  --border-strong:                #3e3b35;
+
+  --text-primary:                 var(--color-ink);
+  --text-secondary:               var(--color-body);
+  --text-tertiary:                var(--color-muted);
+
+  --accent:                       var(--color-primary);
+  --accent-hover:                 var(--color-primary-active);
+  --accent-subtle:                rgba(204, 120, 92, 0.16);
+  --accent-muted:                 rgba(204, 120, 92, 0.28);
+  --accent-fg:                    var(--color-on-primary);
+
+  --success:                      var(--color-success);
+  --success-subtle:               rgba(93, 184, 114, 0.18);
+  --success-fg:                   #79d18d;
+
+  --warning:                      var(--color-warning);
+  --warning-subtle:               rgba(232, 165, 90, 0.18);
+
+  --danger:                       var(--color-error);
+  --danger-subtle:                rgba(224, 93, 93, 0.18);
+  --danger-fg:                    #f07878;
+
+  --shadow-sm:                    0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md:                    0 3px 8px rgba(0, 0, 0, 0.45);
+  --shadow-lg:                    0 8px 24px rgba(0, 0, 0, 0.60);
+  --accent-glow:                  0 0 0 3px rgba(204, 120, 92, 0.28);
 }
 
 /* ══════════════════════════════
-   GLOBAL RESET & BASE
-══════════════════════════════ */
+   3. GLOBAL RESET & BASE
+   ══════════════════════════════ */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -134,32 +217,54 @@ html {
 }
 
 body {
-  background-color: var(--bg);
-  color: var(--text-primary);
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
   font-family: var(--font-sans);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+/* Editorial Display Heading Utility */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
 
-/* Base interactive */
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-hairline); border-radius: var(--radius-pill); }
+::-webkit-scrollbar-thumb:hover { background: var(--color-muted-soft); }
+
+/* Interactive base */
 button, input, select, textarea {
   font-family: inherit;
   font-size: inherit;
-  color: var(--text-primary);
+  color: inherit;
 }
 
-button { cursor: pointer; }
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+}
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

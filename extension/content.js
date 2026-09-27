@@ -23,6 +23,7 @@
   let currentDetections = [];
   let activeAnalysisDetections = null;
   let currentSanitizedContext = null;
+  let currentContextGeneration = null; // Generation under which currentSanitizedContext and ElementRegistry elements were produced
   let latestMetrics = null;
   let latestGateDecision = null;
   let lastProcessedUrl = '';
@@ -113,29 +114,60 @@
         }
         return false;
 
-      case 'GET_CONTEXT':
+      case 'GET_CONTEXT': {
         console.info('[SIH][CONTENT LIFE] GET_CONTEXT received');
         if (window.SIH_Logger) {
           window.SIH_Logger.log('CTX TRACE 06', 'content received GET_CONTEXT');
           window.SIH_Logger.log('CONTEXT', `background -> content GET_CONTEXT (tab gen=${currentAnalysisGeneration}, msg gen=${message.generation})`);
         }
-        if (typeof message.generation === 'number' && message.generation !== currentAnalysisGeneration) {
+
+        const requestedGen = (typeof message.generation === 'number') ? message.generation : currentAnalysisGeneration;
+        const generationMismatch = (typeof message.generation === 'number' && message.generation !== currentAnalysisGeneration);
+
+        if (generationMismatch) {
           if (window.SIH_Logger) {
             window.SIH_Logger.log('CTX TRACE 07', 'generation adopted');
             window.SIH_Logger.log('GEN', `content adopted generation=${message.generation} (was ${currentAnalysisGeneration})`);
           }
-          currentAnalysisGeneration = message.generation;
+          // 1. Adopt the authoritative generation from background
+          currentAnalysisGeneration = requestedGen;
+
+          // 2. Ensure ElementRegistry is scoped to the new generation
           window.SIH_ElementRegistry?.setContextGeneration?.(currentAnalysisGeneration, window.location.href);
+
+          // 3. Clear/invalidate generation-bound perception state
+          currentSanitizedContext = null;
+          currentContextGeneration = null;
+          currentDetections = [];
+          activeAnalysisDetections = null;
         }
 
-        // If force refresh requested, clear cached context
+        // If force refresh requested, clear cached context and reset analysis state
         if (message.forceRefresh) {
           currentSanitizedContext = null;
-          analysisState = 'IDLE'; // Ensure we can run again immediately
+          currentContextGeneration = null;
+          currentDetections = [];
+          activeAnalysisDetections = null;
+          analysisState = 'IDLE';
         }
 
-        // If lightweight or enriched context is already available, emit CONTEXT_READY immediately
-        if (currentSanitizedContext) {
+        // Rule 6: A cached context may ONLY be reused when:
+        // cachedContextGeneration === requestedGeneration
+        // AND
+        // registryGeneration === requestedGeneration
+        // AND
+        // navigation identity is unchanged.
+        const registryGen = window.SIH_ElementRegistry?.getContextGeneration?.();
+        const currentUrl = getSanitizedPageUrl();
+        const isSameNav = (!lastProcessedUrl || lastProcessedUrl === currentUrl);
+
+        if (
+          !message.forceRefresh &&
+          currentSanitizedContext &&
+          currentContextGeneration === requestedGen &&
+          registryGen === requestedGen &&
+          isSameNav
+        ) {
           chrome.runtime.sendMessage({
             type: 'CONTEXT_READY',
             sanitizedContext: currentSanitizedContext,
@@ -143,22 +175,23 @@
             mapping: window.SIH_Sanitizer?.SIH_SanitizerState?.getDetectionSummary?.() || [],
             metrics: latestMetrics,
             gateDecision: latestGateDecision,
-            url: getSanitizedPageUrl(),
-            generation: currentAnalysisGeneration,
-            isLightweight: true // It could be enriched, but we flag true to satisfy the background lock quickly
+            url: currentUrl,
+            generation: currentContextGeneration,
+            isLightweight: true
           }).catch(() => {});
 
           sendResponse({ ok: true });
           return false;
         }
 
-        // If not yet available, trigger immediate lightweight analysis pass
+        // Fresh analysis pass required for this generation.
+        // runAnalysis(requestedGen) will build perception, rebuild ElementRegistry for requestedGen,
+        // create new sanitized context, and emit CONTEXT_READY using the SAME generation.
         requestAnalysis({ immediate: true });
 
-        // We do not need to wait here because runAnalysis will emit CONTEXT_READY when done.
-        // We just acknowledge receipt of GET_CONTEXT.
         sendResponse({ ok: true });
         return false;
+      }
 
       case 'EXECUTE_ACTION': {
         // Validate and execute an action (strictly generation-bound & tab-bound)
@@ -424,6 +457,7 @@
 
       currentDetections = fusedDetections;
       currentSanitizedContext = lightweightContext;
+      currentContextGeneration = generation;
       latestGateDecision = gateDecision;
       latestMetrics = metrics && window.SIH_Metrics.finish(metrics);
       lastProcessedUrl = getSanitizedPageUrl();
@@ -489,6 +523,7 @@
             ? window.SIH_DetectionFusion.fuse([...currentDetections, ...legacyOcrResult.detections])
             : [...currentDetections, ...legacyOcrResult.detections];
           currentSanitizedContext = window.SIH_Sanitizer.buildSanitizedContext(currentDetections, null);
+          currentContextGeneration = generation;
           chrome.runtime.sendMessage({
             type: 'CONTEXT_READY',
             sanitizedContext: currentSanitizedContext,
@@ -618,6 +653,7 @@
       // Update module-level state
       currentDetections = mergedDetections;
       currentSanitizedContext = enrichedContext;
+      currentContextGeneration = generation;
 
       console.info(
         `[PRIVACY] gen=${generation} screenshot sanitized: ${sanitizedDataUrl ? 'TRUE' : 'NONE'}. ` +
@@ -749,6 +785,10 @@
 
     // 2. SPA navigation listener via popstate
     popstateHandler = () => {
+      currentSanitizedContext = null;
+      currentContextGeneration = null;
+      currentDetections = [];
+      activeAnalysisDetections = null;
       requestAnalysis({ immediate: true });
     };
     window.addEventListener('popstate', popstateHandler);
@@ -758,6 +798,10 @@
     const navigationCheck = setInterval(() => {
       if (window.location.href !== currentHref) {
         currentHref = window.location.href;
+        currentSanitizedContext = null;
+        currentContextGeneration = null;
+        currentDetections = [];
+        activeAnalysisDetections = null;
         requestAnalysis({ immediate: true });
       }
     }, 2000);
@@ -784,6 +828,10 @@
     clearSchedulingTimers();
     analysisState = 'IDLE';
     analysisPending = false;
+    currentSanitizedContext = null;
+    currentContextGeneration = null;
+    currentDetections = [];
+    activeAnalysisDetections = null;
   }
 
   // ── Diagnostic / Test Exposure ──

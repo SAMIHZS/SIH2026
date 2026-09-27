@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Privacy Assistant</title>
+  <title>Browser Assistant</title>
   <link rel="stylesheet" href="theme.css">
   <link rel="stylesheet" href="sidebar.css">
   <script src="theme.js"></script>
@@ -13,27 +13,33 @@
   <div class="sidebar-container">
 
     <!-- ════════════════════════════════════════════════
-         1. COMPACT HEADER (60px)
+         1. COMPACT EDITORIAL HEADER (58px)
     ════════════════════════════════════════════════ -->
     <header class="sidebar-header">
       <div class="sidebar-header-left">
-        <div class="header-icon" aria-hidden="true">
+        <div class="header-icon" aria-hidden="true" title="Privacy Protected">
+          <!-- Stylized Shield & Dot Emblem -->
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
           </svg>
         </div>
         <div class="header-title-group">
           <div class="header-title-row">
-            <span class="header-title">Privacy Assistant</span>
+            <span class="header-title">Browser Assistant</span>
             <span class="header-model-pill" id="headerSelectedModel" title="Current configured model">Gemini 2.5 Flash</span>
           </div>
           <div class="header-status">
             <span class="header-status-dot" id="headerStatusDot"></span>
-            <span class="header-status-label" id="headerStatusLabel">Protected</span>
+            <span class="header-status-label" id="headerStatusLabel">Protected locally</span>
           </div>
         </div>
       </div>
       <div class="sidebar-header-right">
+        <button class="header-btn" id="themeToggleBtn" type="button" aria-label="Toggle Theme" title="Toggle Light/Dark Theme">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+        </button>
         <button class="header-btn" id="refreshBtn" type="button" aria-label="Refresh Context" title="Refresh Context">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"/>
@@ -56,7 +62,7 @@
     </header>
 
     <!-- ════════════════════════════════════════════════
-         2. PRIMARY NAVIGATION (CHAT / CONTEXT / PRIVACY)
+         2. PRIMARY SEGMENTED NAVIGATION (CHAT / CONTEXT / PRIVACY)
     ════════════════════════════════════════════════ -->
     <nav class="sidebar-nav" role="tablist" aria-label="Main Navigation">
       <button id="tabChat" role="tab" class="nav-tab active" aria-selected="true" aria-controls="chatView">Chat</button>
@@ -72,27 +78,28 @@
       <!-- ── VIEW 1: CHAT VIEW (DEFAULT PRIMARY EXPERIENCE) ── -->
       <div id="chatView" class="view-pane active" role="tabpanel" aria-labelledby="tabChat">
         <div class="chat-scroll-area" id="chatScrollArea">
-          <!-- Empty State -->
+
+          <!-- Empty State with Editorial Serif Typography -->
           <div class="empty-state" id="emptyState">
-            <div class="empty-state-icon" aria-hidden="true">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              </svg>
+            <div class="empty-state-badge">
+              <span class="badge-dot">●</span>
+              <span>Local Privacy Active</span>
             </div>
-            <h2 class="empty-title">Ask anything about this page.</h2>
-            <p class="empty-sub">Your sensitive visual context is processed locally.</p>
+            <h2 class="empty-title font-display">How can I help?</h2>
+            <p class="empty-sub">Your sensitive visual context is processed and redacted locally before model access.</p>
+
             <div class="suggestions">
               <button class="suggestion-row" type="button" data-prompt="Summarize this page">
-                <span>Summarize this page</span>
-                <span class="arrow">→</span>
+                <span class="suggestion-text">Summarize this page</span>
+                <span class="suggestion-arrow" aria-hidden="true">→</span>
               </button>
               <button class="suggestion-row" type="button" data-prompt="Explain this page">
-                <span>Explain this page</span>
-                <span class="arrow">→</span>
+                <span class="suggestion-text">Explain this page</span>
+                <span class="suggestion-arrow" aria-hidden="true">→</span>
               </button>
               <button class="suggestion-row" type="button" data-prompt="Find important information on this page">
-                <span>Find important information</span>
-                <span class="arrow">→</span>
+                <span class="suggestion-text">Find important information</span>
+                <span class="suggestion-arrow" aria-hidden="true">→</span>
               </button>
             </div>
           </div>
@@ -102,15 +109,18 @@
 
           <!-- Confirmation Dialog (Generation-scoped action firewall) -->
           <div class="confirmation-dialog" id="confirmationDialog" style="display: none;">
-            <div class="confirmation-header">Action requires approval</div>
+            <div class="confirmation-header">
+              <span class="confirmation-badge">Confirmation Required</span>
+              <span>Action Approval</span>
+            </div>
             <div class="confirmation-body">
-              <p class="confirmation-text">The assistant wants to:</p>
+              <p class="confirmation-text">The assistant proposed the following browser action:</p>
               <p class="confirmation-target" id="confirmationActionDesc">Click "Submit Application"</p>
-              <p class="confirmation-target-domain" id="confirmationDomain">Website: example.com</p>
+              <p class="confirmation-target-domain" id="confirmationDomain">Website: current page</p>
             </div>
             <div class="confirmation-actions">
               <button type="button" id="confirmCancelBtn" class="confirm-cancel">Cancel</button>
-              <button type="button" id="confirmAllowBtn" class="confirm-allow">Allow</button>
+              <button type="button" id="confirmAllowBtn" class="confirm-allow">Allow Action</button>
             </div>
           </div>
         </div>
@@ -133,8 +143,8 @@
               rows="1"
               autocomplete="off"
             ></textarea>
-            <button id="sendBtn" class="send-btn" type="button" aria-label="Send" title="Send" disabled>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <button id="sendBtn" class="send-btn" type="button" aria-label="Send" title="Send message" disabled>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="12" y1="19" x2="12" y2="5"/>
                 <polyline points="5 12 12 5 19 12"/>
               </svg>
@@ -143,77 +153,43 @@
         </div>
       </div>
 
-      <!-- ── VIEW 2: CONTEXT VIEW (WHAT THE AI SEES) ── -->
+      <!-- ── VIEW 2: CONTEXT VIEW (WHAT THE AI SEES — SIGNATURE DARK PRODUCT CARD) ── -->
       <div class="view-pane" id="contextView" role="tabpanel" aria-labelledby="tabContext" style="display: none;">
         <div class="pane-scroll-container">
           <div class="pane-header">
-            <h2 class="pane-title">Sanitized Context</h2>
-            <p class="pane-subtitle">Information permitted to leave local device</p>
+            <h2 class="pane-title font-display">What the AI Sees</h2>
+            <p class="pane-subtitle">Only sanitized text and redacted imagery leave this browser</p>
           </div>
 
-          <!-- Structured Context Cards -->
-          <div class="context-data-cards">
-            <div class="context-card">
-              <div class="context-card-label">Page</div>
-              <div class="context-card-value font-mono" id="seePageUrl">—</div>
-            </div>
-            <div class="context-card-row">
-              <div class="context-card half">
-                <div class="context-card-label">Visual</div>
-                <div class="context-card-value" id="seeVisualStatus">Sanitized screenshot ✓</div>
+          <!-- SIGNATURE DARK PRODUCT CARD (WHAT AI SEES) -->
+          <div class="what-ai-sees-product-card" id="privacyEvidenceSection" aria-label="Privacy Processing Evidence">
+            <div class="product-card-top-row">
+              <div class="product-card-brand">
+                <span class="product-card-kicker">WHAT AI SEES</span>
+                <span class="product-card-badge" id="evidenceStatusBadge">PROTECTED</span>
               </div>
-              <div class="context-card half">
-                <div class="context-card-label">OCR</div>
-                <div class="context-card-value" id="seeOcrStatus">Executed ✓</div>
-              </div>
-            </div>
-            <div class="context-card">
-              <div class="context-card-label">Detected PII Redactions</div>
-              <div class="context-card-chips" id="seeDetectedCategories">
-                <span class="status-chip status-chip-coral">[NONE DETECTED]</span>
-              </div>
-            </div>
-            <div class="context-card-row">
-              <div class="context-card half">
-                <div class="context-card-label">Interactive Elements</div>
-                <div class="context-card-value" id="seeElementsCount">0 elements</div>
-              </div>
-              <div class="context-card half">
-                <div class="context-card-label">Model & Vision</div>
-                <div class="context-card-value" id="seeModelInfo">Gemini 2.5 Flash</div>
-                <div class="context-subtext" id="seeVisionStatus">Vision: Enabled</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Compact Visual Context Toggle -->
-          <div class="context-toggle-card">
-            <div class="context-toggle-header">
-              <div>
-                <span class="context-toggle-title">Visual context</span>
-                <p class="context-note" id="screenshotNote">Captured locally · Sensitive regions redacted</p>
-              </div>
-              <label class="context-switch" aria-label="Send sanitized screenshot to AI">
-                <input type="checkbox" id="screenshotToggle" role="switch" aria-checked="true" aria-label="Send sanitized screenshot to AI">
-                <span class="context-slider" aria-hidden="true"></span>
-              </label>
-            </div>
-          </div>
-
-          <!-- Sanitized Screenshot Preview Card -->
-          <div class="evidence-preview-card" id="privacyEvidenceSection" aria-label="Privacy Processing Evidence">
-            <div class="evidence-card-header" id="evidenceHeader">
-              <div class="evidence-header-left">
-                <span class="evidence-icon" aria-hidden="true">🔍</span>
-                <span class="evidence-title">Sanitized Screenshot Preview</span>
-              </div>
-              <span class="evidence-badge" id="evidenceStatusBadge">Protected</span>
+              <span class="product-card-pill">Local Redaction ✓</span>
             </div>
 
-            <div class="evidence-notice">
-              Only this sanitized image is available to the assistant. Raw screenshots never leave local memory.
+            <!-- Stats Bar -->
+            <div class="product-card-stats-row">
+              <div class="stat-cell">
+                <span class="stat-number" id="seeElementsCount">0 elements</span>
+                <span class="stat-label">Interactive DOM</span>
+              </div>
+              <div class="stat-divider"></div>
+              <div class="stat-cell">
+                <span class="stat-number" id="seeVisualStatus">Sanitized screenshot ✓</span>
+                <span class="stat-label">Visual Guard</span>
+              </div>
+              <div class="stat-divider"></div>
+              <div class="stat-cell">
+                <span class="stat-number" id="seeOcrStatus">Executed ✓</span>
+                <span class="stat-label">Local OCR</span>
+              </div>
             </div>
 
+            <!-- Sanitized Screenshot Preview Area -->
             <div class="evidence-preview-container" id="evidencePreviewContainer">
               <div class="evidence-loading" id="evidenceLoading" style="display: none;">
                 <div class="evidence-spinner"></div>
@@ -235,7 +211,7 @@
             </div>
 
             <div class="evidence-toggle-row" id="evidenceOverlayToggleRow" style="display: none;">
-              <label for="overlayToggle" class="evidence-toggle-label">Show redaction regions</label>
+              <label for="overlayToggle" class="evidence-toggle-label">Show redaction boxes</label>
               <input type="checkbox" id="overlayToggle" class="evidence-checkbox" />
             </div>
 
@@ -249,10 +225,45 @@
             </div>
           </div>
 
+          <!-- Structured Context Cards (Cream Cards) -->
+          <div class="context-data-cards">
+            <div class="context-card">
+              <div class="context-card-label">Active Page</div>
+              <div class="context-card-value font-mono" id="seePageUrl">—</div>
+            </div>
+
+            <div class="context-card">
+              <div class="context-card-label">Detected PII Redactions</div>
+              <div class="context-card-chips" id="seeDetectedCategories">
+                <span class="status-chip status-chip-coral">[NONE DETECTED]</span>
+              </div>
+            </div>
+
+            <div class="context-card">
+              <div class="context-card-label">Model Reasoning Partner</div>
+              <div class="context-card-value" id="seeModelInfo">Gemini 2.5 Flash</div>
+              <div class="context-subtext" id="seeVisionStatus">Vision: Enabled</div>
+            </div>
+          </div>
+
+          <!-- Visual Context Switch Card -->
+          <div class="context-toggle-card">
+            <div class="context-toggle-header">
+              <div>
+                <span class="context-toggle-title">Include visual context</span>
+                <p class="context-note" id="screenshotNote">Captured locally · Sensitive regions redacted</p>
+              </div>
+              <label class="context-switch" aria-label="Send sanitized screenshot to AI">
+                <input type="checkbox" id="screenshotToggle" role="switch" aria-checked="true" aria-label="Send sanitized screenshot to AI">
+                <span class="context-slider" aria-hidden="true"></span>
+              </label>
+            </div>
+          </div>
+
           <!-- Processing Evidence Accordion (Collapsible) -->
           <details class="processing-details-accordion" id="processingDetailsAccordion">
             <summary class="processing-accordion-summary">
-              <span class="accordion-summary-title">Processing details</span>
+              <span class="accordion-summary-title">Technical processing metadata</span>
               <span class="accordion-chevron">▾</span>
             </summary>
             <div class="evidence-meta-grid" id="evidenceMetaGrid">
@@ -315,7 +326,7 @@
       <div class="view-pane" id="privacyView" role="tabpanel" aria-labelledby="tabPrivacy" style="display: none;">
         <div class="pane-scroll-container">
           <div class="pane-header">
-            <h2 class="pane-title">Privacy Guarantees</h2>
+            <h2 class="pane-title font-display">Privacy Guarantees</h2>
             <p class="pane-subtitle">Factual statement of local vs remote processing</p>
           </div>
 
@@ -375,13 +386,13 @@
     </main>
 
     <!-- ════════════════════════════════════════════════
-         4. SETTINGS MODAL DIALOG
+         4. SETTINGS MODAL DIALOG (EDITORIAL COMPACT PANEL)
     ════════════════════════════════════════════════ -->
     <div id="settingsModal" class="settings-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
       <div class="settings-modal-backdrop" id="settingsModalBackdrop"></div>
       <div class="settings-modal-card">
         <div class="settings-modal-header">
-          <div class="settings-modal-title" id="settingsModalTitle">Settings</div>
+          <div class="settings-modal-title font-display" id="settingsModalTitle">Settings</div>
           <button type="button" id="closeSettingsModalBtn" class="close-btn" aria-label="Close Settings">✕</button>
         </div>
         <div class="settings-modal-body">
@@ -402,8 +413,8 @@
 
           <div class="settings-section">
             <div class="settings-label">API Key</div>
-            <div class="settings-key-masked">••••••••••••••••</div>
-            <div class="settings-hint">API keys are securely stored and never transmitted to the webpage.</div>
+            <div class="settings-key-masked font-mono">••••••••••••••••</div>
+            <div class="settings-hint">API keys are securely stored locally and never transmitted to webpages.</div>
           </div>
 
           <div class="settings-footer">
