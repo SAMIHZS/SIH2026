@@ -47,7 +47,7 @@
 - [x] Accessible button names and ARIA role attributes configured
 
 ## 6. Testing & Quality Verification
-- [x] P1–P200 full privacy regression test suite passing 100% (200/200)
+- [x] P1–P252 full privacy regression test suite passing 100% (252/252)
 - [x] Real Chrome Puppeteer automated release suite passing 100% (24/24 verification points)
 - [x] Zero console leaks across real Chrome execution:
   - Raw screenshot leaks: 0

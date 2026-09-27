@@ -1,114 +1,104 @@
-# SIH26171 — Implementation Plan
+# SIH26171 � Implementation Plan
 
-> This is the implementation-tracking document. It does NOT replace the baseline documentation in `SIH26171_MD_Pack/`.
+> **Status**: All phases complete. This document is retained as a historical implementation record.
+> **Current state**: See `README.md` and `RELEASE_VERSION.md` for the verified release snapshot.
 
-## Current Implementation Objective
+---
 
-Build Phase 1: a working privacy-safe Chrome browser assistant prototype with automatic page observation, local PII detection (DOM + regex), sanitization, redacted screenshots, Groq-powered reasoning, assistant sidebar, and privacy visualization.
-
-## Current Architecture
+## Final Architecture (Implemented)
 
 ```
 extension/
-├── manifest.json          # MV3 manifest
-├── content.js             # DOM extraction, detectors, sanitizer, executor
-├── background.js          # Service worker: messaging, screenshots, networking
-├── popup.html/js/css      # Privacy toggle + settings
-├── sidebar.html/js/css    # Assistant sidebar with privacy visualization
-├── sanitize.js            # Detection[] → SanitizedContext
-├── validate.js            # Action validation (allowlist, target checks)
-├── execute.js             # Browser execution (click, type, scroll)
-└── detectors/
-    ├── domDetector.js     # DOM attribute-based PII detection
-    └── regexDetector.js   # Regex-based PII detection
-
-server/
-├── app.py                 # FastAPI backend, POST /agent
-├── ai_provider.py         # Groq provider (openai/gpt-oss-20b)
-└── requirements.txt
-
-demo/
-└── index.html             # Controlled demo page with fake PII
++-- manifest.json               # MV3 manifest
++-- background.js               # Service worker: messaging, screenshots, provider gateway
++-- content.js                  # DOM extraction, detectors, sanitizer, executor
++-- sidebar.html/js/css         # Chrome Side Panel (primary UI)
++-- options.html/js/css         # Provider configuration (MV3 options_ui)
++-- popup.html/js/css           # Toolbar popup (privacy status summary)
++-- elementRegistry.js          # Element ID <-> DOM node mapping (generation-scoped)
++-- grounding.js                # Intent -> DOM resolution
++-- sanitize.js                 # Detection[] -> SanitizedContext
++-- validate.js                 # Action validation (allowlist, target checks, generation)
++-- execute.js                  # Browser execution (click, type, scroll)
++-- agentCoordinator.js         # Bounded multi-step agent loop
++-- modelManager.js             # Provider abstraction + pre-flight PII scan
++-- perceptionSchema.js         # Canonical detection schema
++-- detectionFusion.js          # Multi-source detection merge with provenance
++-- detectionGate.js            # Cost-based gate: decides runOcr / runCv
++-- metrics.js                  # PII-free numeric instrumentation
++-- logger.js                   # Structured logger with key scrubbing
++-- offscreen.html/js           # Isolated Offscreen Document host
++-- detectors/
+|   +-- domDetector.js          # DOM attribute-based PII detection
+|   +-- regexDetector.js        # Regex-based PII detection
+|   +-- ocrDetector.js          # Tesseract OCR gated detector + PII classifier
++-- providers/
+|   +-- geminiProvider.js       # Google Gemini adapter (multimodal, vision)
+|   +-- groqProvider.js         # Groq adapter
+|   +-- openRouterProvider.js   # OpenRouter adapter
+|   +-- localProvider.js        # Local model stub
+|   +-- types.js                # Provider response normalization
++-- vision/
+|   +-- visualPipeline.js       # Screenshot -> offscreen -> enrichment orchestrator
+|   +-- visualWorker.js         # Off-main-thread: MediaPipe + canvas redaction
++-- icons/                      # Extension icons (16, 48, 128px)
++-- vendor/                     # Vendored WASM runtimes: Tesseract + MediaPipe (~88 MB)
 
 tests/
-└── test_*.html            # Browser-based test pages
++-- run_privacy_tests.js        # P1-P252 Node.js privacy regression suite
++-- test_phase*.js              # Real Chrome Puppeteer integration suites
++-- fixtures/
+|   +-- demo_workflow.html      # Canonical 3-step demo page
++-- *.html                      # Browser-native unit test pages
 ```
 
-## Implementation Phases
+---
 
-1. MV3 skeleton + messaging
-2. DOM extraction
-3. PII detectors (DOM + regex)
-4. Sanitizer
-5. Screenshot + redaction
-6. Service worker networking
-7. FastAPI backend + Groq
-8. Action validation + execution
-9. Automatic page observation
-10. Sidebar UI + privacy visualization
-11. Demo page
-12. Testing + verification
+## Implementation Phases (Historical)
+
+| Phase | Description | Status |
+|---|---|---|
+| 1 | MV3 skeleton, messaging, DOM extraction, PII detectors, sanitizer | COMPLETE |
+| 2 | Visual pipeline (MediaPipe + Tesseract), detection fusion, detection gate, metrics | COMPLETE |
+| 3 | Browser-side Model Manager, Gemini/Groq/OpenRouter/Local adapters, options UI | COMPLETE |
+| 4 | FastAPI/Python backend removed; browser-only path verified | COMPLETE |
+| 5 | OCR runtime wired and verified in real Chrome | COMPLETE |
+| 6 | ElementRegistry grounding, Action Firewall, multi-step Agent Coordinator | COMPLETE |
+| 7 | Grounding & action validation (Real Chrome verified) | COMPLETE |
+| 8 | Multi-step agent loop (Real Chrome verified) | COMPLETE |
+| 9 | Production hardening: navigation races, provider failures, loop detection | COMPLETE |
+| 10 | Release candidate: 24-point verification suite | COMPLETE |
+| 13 | UI/UX design system, sidebar redesign, theme system | COMPLETE |
+| 14 | Generation synchronization fix (stale-element recovery) | COMPLETE |
+
+---
 
 ## Dependencies
 
-### Extension (vanilla JS, no external deps)
-- Chrome MV3 APIs (runtime, tabs, sidePanel, storage)
+### Extension (no external dependencies)
+- Chrome MV3 APIs: `runtime`, `tabs`, `sidePanel`, `storage`, `offscreen`, `scripting`
+- Vendored: Tesseract.js v7 (WebAssembly), MediaPipe Tasks Vision (WebAssembly, BlazeFace)
 
 ### Backend
-- fastapi, uvicorn, httpx, pydantic
+- None. The Python/FastAPI server was retired in Phase 4. The extension makes all AI provider
+  calls directly from the service worker.
 
-## Testing Plan
+---
 
-- PII detection: email, phone, password, card, account, metadata
-- Sanitization: no raw PII in output
-- Security: network payload clean, no eval/scripts
-- Validation: allowlist, target checks, rejection
-- Execution: click, type (with events), scroll
-- Integration: full end-to-end loop
+## Security Plan (Implemented)
 
-## Security Plan
+- Only `SanitizedContext` crosses the network boundary
+- Action allowlist: `click`, `type`, `scroll` � enforced by `validate.js`
+- Local validation before execution with generation freshness check
+- No `eval()` / `new Function()` / script tags anywhere in codebase
+- Provider never receives raw PII, raw screenshots, or raw OCR text
+- API keys stored in `chrome.storage.local`; never logged
 
-- Only SanitizedContext crosses network boundary
-- Action allowlist: click, type, scroll
-- Local validation before execution
-- No eval/new Function/scripts
-- Backend never logs raw PII
+---
 
-## Known Risks
+## Testing (Final State)
 
-| Risk | Mitigation |
-|---|---|
-| MV3 service worker lifecycle | Stateless design |
-| Side Panel API | Fallback consideration |
-| Groq API failures | Deterministic mock fallback |
-| SPA navigation | MutationObserver + event detection |
-| Coordinate alignment | Viewport-aware transformation |
-
-## Approved Deviations from Baseline Documentation
-
-| Deviation | Reason |
-|---|---|
-| Model: openai/gpt-oss-20b (not Llama 3.1 8B) | Explicit user requirement |
-| Text responses + Action | User requires conversational assistant |
-| Sidebar as primary UI | User requirement, not popup-based |
-
-## Future Extensibility
-
-- Detection[] contract supports future ocr/cv/face/object/ml
-- ai_provider.py boundary allows provider swaps
-- Sanitizer is source-agnostic
-- Action schema has planned Phase 2 extensions
-
-## Phase 2 Implementation Status
-
-The Phase 2 migration has started without removing the Phase 1 backend. Implemented browser-side foundations include:
-
-- deterministic DOM/Regex-to-visual gating
-- detection fusion with provenance and confidence
-- PII-free performance metrics
-- local screenshot masking
-- OCR classification and Vision lazy-runtime boundaries
-- privileged Model Manager with Groq, OpenRouter, and honest LocalProvider adapters
-- provider/model configuration UI with protected credential handling
-
-The service worker uses the Model Manager when a provider is configured and retains FastAPI as a temporary fallback. OCR/CV runtime assets, live provider verification, browser-only end-to-end validation, and backend removal remain pending. See `PHASE2.md` for the migration criteria.
+- **P1�P252**: 252 privacy regression tests � 100% passing (`node tests/run_privacy_tests.js`)
+- **Real Chrome E2E**: Phases 5, 7, 8, 9, 10, 13, 14 � all suites passing
+- **Manifest Audit**: P156�P160 passing (`node tests/release_manifest_audit.js`)
+- **Zero Leak Audit**: 0 raw screenshot leaks, 0 OCR leaks, 0 API key leaks (verified in real Chrome)

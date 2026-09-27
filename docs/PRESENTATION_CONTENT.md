@@ -111,7 +111,7 @@ This document outlines the slide-by-slide structure, visual layouts, bullet poin
 ### SLIDE 9: Empirical Results & Verification
 - **Visual**: Dashboard of verified benchmarks and leak audit results.
 - **Key Points**:
-  - **Automated Tests**: P1–P200 (200 passed, 0 failed, 100% PASS).
+  - **Automated Tests**: P1–P252 (252 passed, 0 failed, 100% PASS).
   - **Real Chrome Leak Audit**:
     - Raw screenshot leaks: **0**
     - Raw OCR text leaks: **0**

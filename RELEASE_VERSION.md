@@ -1,7 +1,7 @@
 # SIH26171 Release Candidate Snapshot
 
 **Release ID**: SIH26171 Release Candidate  
-**Build Date**: 2026-09-27  
+**Build Date**: 2026-09-28  
 **Platform**: Google Chrome Manifest V3  
 **Status**: **FROZEN & VERIFIED**
 
@@ -12,7 +12,7 @@
 | Verification Dimension | Status | Verified Evidence |
 | :--- | :--- | :--- |
 | **Architecture** | **FROZEN** | Strict 12-stage pipeline; zero backend; pure MV3 client-side execution |
-| **Regression Suite** | **PASS (100%)** | P1–P200 passing (200 passed, 0 failed) via `tests/run_privacy_tests.js` |
+| **Regression Suite** | **PASS (100%)** | P1–P252 passing (252 passed, 0 failed) via `tests/run_privacy_tests.js` |
 | **Manifest & Dead Code** | **PASS (100%)** | P156–P160 passing via `tests/release_manifest_audit.js` |
 | **Real Chrome E2E** | **PASS (100%)** | 24/24 release points verified via `tests/test_phase10_release.js` |
 | **Privacy Leak Audit** | **PASS (0 Leaks)** | 0 raw screenshot leaks, 0 raw OCR text leaks, 0 API key leaks |

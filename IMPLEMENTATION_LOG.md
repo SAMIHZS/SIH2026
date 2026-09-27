@@ -1,7 +1,7 @@
 # SIH26171 — Implementation Log
 
-> **Last updated:** 2026-09-26
-> **Status:** Phase 2 Stabilization complete
+> **Last updated:** 2026-09-28
+> **Status:** Release Candidate — all phases complete, 252/252 tests passing
 
 ---
 
@@ -148,8 +148,8 @@ content.js EXECUTE_ACTION
 ## KNOWN LIMITATIONS
 
 1. **No server**: All LLM calls are direct from the extension service worker. API keys are in local storage.
-2. **No general visual model**: Only faces are detected in screenshots. UI elements (buttons, icons, canvas controls) are not visually detected.
-3. **OCR not tested in production**: `ocrDetector.js` exists and is wired, but full browser runtime testing has not been performed.
+2. **No general visual model**: Only faces are detected in screenshots. UI elements (buttons, icons, canvas controls) are not visually detected in this release.
+3. **On-device LLM**: `localProvider` is a documented stub. On-device model inference is not bundled.
 4. **Vendor size**: ~88 MB of WASM assets on disk. This is due to multiple SIMD variants of Tesseract — not all are loaded simultaneously.
 
 ---

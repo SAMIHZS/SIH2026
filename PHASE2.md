@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Phase 2 extends the Phase 1 privacy boundary with visual-processing infrastructure and a browser-side provider manager. The migration is intentionally staged: FastAPI remains available until the browser-only path is verified.
+Phase 2 extended the Phase 1 privacy boundary with visual-processing infrastructure and a browser-side provider manager. The migration is complete: the FastAPI/Python backend has been fully retired and the browser-only path has been verified.
 
 ## Implemented
 
@@ -30,16 +30,7 @@ Phase 2 extends the Phase 1 privacy boundary with visual-processing infrastructu
 
 ## Migration State
 
-The service worker prefers the browser-side Model Manager when a configured provider exists. If no browser provider is configured, the existing FastAPI path remains available as a temporary migration fallback.
-
-FastAPI/Python must not be removed until all of these are verified:
-
-1. Groq and OpenRouter requests work from the privileged extension context.
-2. Only sanitized context reaches each provider.
-3. Provider switching and model persistence work.
-4. No-provider privacy operation works without a server.
-5. Local action validation and execution remain authoritative.
-6. Phase 1 regression tests remain green.
+Migration is complete. The FastAPI/Python backend has been fully removed. The browser-side Model Manager is the exclusive execution path.
 
 ## Runtime Limitations
 

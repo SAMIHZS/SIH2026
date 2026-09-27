@@ -88,7 +88,7 @@ SAFE DOM EXECUTION
 
 The system has undergone rigorous automated testing across both synthetic isolation suites and live Google Chrome instances using Puppeteer:
 
-- **Automated Regression Suite (`P1–P200`)**: **200 passed, 0 failed (100% PASS rate)**.
+- **Automated Regression Suite (`P1–P252`)**: **252 passed, 0 failed (100% PASS rate)**.
 - **Real Chrome MV3 Verification**: Successfully verified in real Chrome across 5 development phases (Phases 5, 7, 8, 9, and the Phase 10 24-point Release Candidate test).
 - **Real-Chrome Leak Audit (Zero Leaks)**:
   - Raw screenshot leaks: **0**

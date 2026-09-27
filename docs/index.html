@@ -1,0 +1,1134 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#faf9f5">
+  <title>SIH26171 — Privacy-Preserving Browser AI Assistant</title>
+  <meta name="description" content="A privacy-preserving browser AI assistant that performs local visual perception and context sanitization before AI access. Grounded, safe, and transparent.">
+  
+  <!-- Open Graph / Social Meta -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="SIH26171 — Privacy-Preserving Browser AI Assistant">
+  <meta property="og:description" content="A device-local privacy barrier for browser AI. Local computer vision, local OCR, and sensitive PII sanitization before cloud model reasoning.">
+  <meta property="og:image" content="assets/icons/icon128.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SIH26171 — Privacy-Preserving Browser AI Assistant">
+  <meta name="twitter:description" content="A device-local privacy barrier for browser AI. Local computer vision, local OCR, and sensitive PII sanitization before cloud model reasoning.">
+  
+  <link rel="icon" type="image/png" sizes="48x48" href="assets/icons/icon48.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body id="top">
+
+  <!-- ═════════════════════════════════════════════════════════════════
+       HEADER & NAVIGATION
+       ═════════════════════════════════════════════════════════════════ -->
+  <header class="site-header">
+    <div class="container nav-container">
+      <a href="./" class="brand-link" aria-label="SIH26171 Browser Assistant Home">
+        <div class="brand-logo-mark">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="M9 12l2 2 4-4"/>
+          </svg>
+        </div>
+        <div class="brand-name">
+          <span class="brand-title">SIH26171</span>
+          <span class="brand-sub">Privacy Assistant</span>
+        </div>
+      </a>
+
+      <nav class="nav-menu" aria-label="Main Navigation">
+        <a href="#problem">Problem</a>
+        <a href="#how-it-works">How It Works</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#what-ai-sees">What AI Sees</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#installation">Installation</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+
+      <div class="nav-actions">
+        <button id="themeToggleBtn" class="btn-icon" aria-label="Switch theme">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+        </button>
+
+        <a href="https://github.com/SAMIHZS/SIH2026" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          <span>GitHub</span>
+        </a>
+
+        <button class="btn btn-primary js-download-btn" aria-haspopup="dialog">
+          <span>Download</span>
+        </button>
+
+        <button id="hamburgerBtn" class="hamburger-btn" aria-label="Toggle mobile menu" aria-expanded="false">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mobile Navigation Drawer -->
+  <div id="mobileNavDrawer" class="mobile-nav-drawer" aria-hidden="true">
+    <nav class="mobile-nav-menu">
+      <a href="#problem">Problem</a>
+      <a href="#how-it-works">How It Works</a>
+      <a href="#privacy">Privacy Architecture</a>
+      <a href="#what-ai-sees">What AI Sees</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#installation">Installation Guide</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/SAMIHZS/SIH2026" target="_blank" rel="noopener noreferrer">Source Code (GitHub)</a>
+    </nav>
+    <div style="margin-top: auto; padding-top: 16px; border-top: 1px solid var(--color-hairline);">
+      <button class="btn btn-primary js-download-btn" style="width: 100%;" aria-haspopup="dialog">Download Extension</button>
+    </div>
+  </div>
+
+  <main>
+    <!-- ═════════════════════════════════════════════════════════════════
+         HERO SECTION
+         ═════════════════════════════════════════════════════════════════ -->
+    <section class="hero-section">
+      <div class="container hero-grid">
+        <div class="hero-content">
+          <div class="hero-eyebrow">
+            <span class="badge badge-coral">[ PRIVATE BY DESIGN ]</span>
+          </div>
+          <h1 class="display-xl hero-title">
+            Your browser assistant shouldn't need to see everything.
+          </h1>
+          <p class="hero-description">
+            A privacy-preserving Chrome assistant that performs device-local perception, MediaPipe face redaction, and OCR before sending sanitized context to AI models. Safe, grounded, and transparent.
+          </p>
+
+          <div class="hero-actions">
+            <button class="btn btn-primary js-download-btn" aria-haspopup="dialog">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              <span>Download Extension</span>
+            </button>
+            <a href="#architecture" class="btn btn-secondary">
+              <span>Explore Architecture</span>
+            </a>
+          </div>
+
+          <div class="hero-status-row">
+            <div class="hero-status-item">
+              <span class="status-dot dot-green"></span>
+              <span>252/252 Tests Passing</span>
+            </div>
+            <div class="hero-status-item">
+              <span class="status-dot dot-green"></span>
+              <span>Zero Remote Backend</span>
+            </div>
+            <div class="hero-status-item">
+              <span class="status-dot dot-green"></span>
+              <span>Chrome Manifest V3</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hero Showcase Frame -->
+        <div class="hero-showcase">
+          <div class="browser-frame">
+            <div class="browser-frame-header">
+              <div class="frame-dots">
+                <span class="frame-dot"></span>
+                <span class="frame-dot"></span>
+                <span class="frame-dot"></span>
+              </div>
+              <div class="frame-address">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <span>https://example.com/portal</span>
+              </div>
+            </div>
+
+            <div class="browser-frame-body">
+              <div class="mockup-extension">
+                <div class="mockup-header">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cc785c" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    <span class="mockup-title">SIH Assistant</span>
+                  </div>
+                  <span class="mockup-badge">
+                    <span class="status-dot dot-green"></span>
+                    Protected locally
+                  </span>
+                </div>
+
+                <div class="mockup-what-ai-sees">
+                  <div class="mockup-was-header">
+                    <span>What AI Sees</span>
+                    <span class="badge badge-success" style="font-size: 0.625rem; padding: 2px 6px;">Sanitized</span>
+                  </div>
+                  <div class="mockup-stat-grid">
+                    <div class="mockup-stat">
+                      <span class="stat-label">Elements</span>
+                      <span class="stat-val">34 Registered</span>
+                    </div>
+                    <div class="mockup-stat">
+                      <span class="stat-label">Visual Privacy</span>
+                      <span class="stat-val val-green">Face Masked</span>
+                    </div>
+                    <div class="mockup-stat">
+                      <span class="stat-label">Local OCR</span>
+                      <span class="stat-val">122 Bounded Chars</span>
+                    </div>
+                    <div class="mockup-stat">
+                      <span class="stat-label">Raw Viewport</span>
+                      <span class="stat-val val-green">Blocked</span>
+                    </div>
+                  </div>
+                  <div style="font-size: 0.6875rem; color: var(--color-on-dark-soft); font-family: var(--font-code);">
+                    Context bound: tab=114845892 gen=3 (Authoritative)
+                  </div>
+                </div>
+
+                <div class="mockup-prompt-area">
+                  <span class="mockup-prompt-text">"Go to his Skills section"</span>
+                  <span class="mockup-prompt-btn">Execute</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════════════════════════════════════════════════════════════
+         PROBLEM SECTION
+         ═════════════════════════════════════════════════════════════════ -->
+    <section id="problem" class="section section-soft">
+      <div class="container">
+        <div class="section-header text-center">
+          <span class="caption-uppercase eyebrow" style="color: var(--color-primary);">The Privacy Paradox</span>
+          <h2 class="display-lg">AI agents need context. But context contains your private life.</h2>
+          <p>
+            Modern browser automation requires understanding what is on screen. However, granting external cloud models unrestricted access to your viewport creates severe security and data leakage liabilities.
+          </p>
+        </div>
+
+        <div class="problem-grid">
+          <div class="problem-card">
+            <div class="problem-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+              </svg>
+            </div>
+            <h3>Raw Viewport Exposure</h3>
+            <p>
+              Conventional browser agents upload full-resolution screenshots directly to model providers. Unredacted personal photos, family portraits, bank balances, and open conversation tabs are exposed over the network.
+            </p>
+          </div>
+
+          <div class="problem-card">
+            <div class="problem-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+            </div>
+            <h3>Unsanitized DOM Leaks</h3>
+            <p>
+              Scraping raw HTML or accessibility trees passes unmasked email addresses, phone numbers, auth session tokens, and credit card inputs to third-party cloud LLM providers without user awareness.
+            </p>
+          </div>
+
+          <div class="problem-card">
+            <div class="problem-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+              </svg>
+            </div>
+            <h3>Unrestricted Agent Execution</h3>
+            <p>
+              Many experimental agents run arbitrary JavaScript (<code style="font-family: var(--font-code);">eval</code>) or arbitrary CSS/XPath queries. Hallucinations or prompt injections can mutate sensitive accounts or leak browser cookies.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════════════════════════════════════════════════════════════
+         CORE DIFFERENTIATOR: "THE AI SEES LESS"
+         ═════════════════════════════════════════════════════════════════ -->
+    <section class="section section-cream">
+      <div class="container">
+        <div class="section-header text-center">
+          <span class="caption-uppercase eyebrow" style="color: var(--color-primary);">Core Differentiator</span>
+          <h2 class="display-lg">The AI sees less.</h2>
+          <p>
+            By executing computer vision, face redaction, and PII sanitization locally before the model request is formed, we minimize data transmission to the absolute structural minimum.
+          </p>
+        </div>
+
+        <div class="comparison-wrapper">
+          <div class="comparison-grid">
+            <!-- Raw Context Column -->
+            <div class="comparison-col col-raw">
+              <div class="comparison-header">
+                <div>
+                  <strong style="color: var(--color-error);">Raw Browser Viewport</strong>
+                  <span style="font-size: 0.75rem; color: var(--color-muted); display: block;">What conventional agents transmit</span>
+                </div>
+                <span class="badge badge-coral">High Risk</span>
+              </div>
+              <div class="comparison-body">
+                <div class="data-preview-box" id="rawContextPreview">
+                  <div><strong>Account:</strong> John Doe (<span class="leak-highlight">john.doe@example.com</span>)</div>
+                  <div><strong>Phone:</strong> <span class="leak-highlight">+1 (555) 019-2831</span></div>
+                  <div><strong>Card Ending:</strong> <span class="leak-highlight">4111-2222-3333-8890</span></div>
+                  <div><strong>Photo:</strong> <span class="leak-highlight">[Raw Unmasked Human Face (Base64 JPEG)]</span></div>
+                  <div><strong>Full DOM:</strong> 1,420 raw unverified HTML nodes with hidden attributes</div>
+                </div>
+                <ul class="comparison-points">
+                  <li><span style="color: var(--color-error); font-weight: bold;">✕</span> Raw screenshots sent to cloud LLM</li>
+                  <li><span style="color: var(--color-error); font-weight: bold;">✕</span> Passwords & PII exposed in model payloads</li>
+                  <li><span style="color: var(--color-error); font-weight: bold;">✕</span> Model generates arbitrary DOM code</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Sanitized Context Column -->
+            <div class="comparison-col col-sanitized">
+              <div class="comparison-header">
+                <div>
+                  <strong style="color: var(--color-success);">Sanitized AI Context</strong>
+                  <span style="font-size: 0.75rem; color: var(--color-on-dark-soft); display: block;">What SIH26171 actually transmits</span>
+                </div>
+                <span class="badge badge-success">Protected</span>
+              </div>
+              <div class="comparison-body">
+                <div class="data-preview-box" id="sanitizedContextPreview">
+                  <div><strong>Account:</strong> User (<span class="safe-token">[EMAIL REDACTED]</span>)</div>
+                  <div><strong>Phone:</strong> <span class="safe-token">[PHONE REDACTED]</span></div>
+                  <div><strong>Card Ending:</strong> <span class="safe-token">[CREDENTIAL REDACTED]</span></div>
+                  <div><strong>Photo:</strong> <span class="safe-token">[MediaPipe Solid-Fill Mask Applied Locally]</span></div>
+                  <div><strong>Elements:</strong> 34 registered interactive targets (<span class="font-code">el_1</span>..<span class="font-code">el_34</span>)</div>
+                </div>
+                <ul class="comparison-points">
+                  <li><span style="color: var(--color-success); font-weight: bold;">✓</span> Raw screenshot never transmitted (redacted PNG only if vision enabled)</li>
+                  <li><span style="color: var(--color-success); font-weight: bold;">✓</span> OCR run locally via WebAssembly on redacted canvas</li>
+                  <li><span style="color: var(--color-success); font-weight: bold;">✓</span> Actions bound to strictly validated synthetic IDs</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════════════════════════════════════════════════════════════
+         HOW IT WORKS (8-STAGE PIPELINE)
+         ═════════════════════════════════════════════════════════════════ -->
+    <section id="how-it-works" class="section section-soft">
+      <div class="container">
+        <div class="section-header text-center">
+          <span class="caption-uppercase eyebrow" style="color: var(--color-primary);">Architecture Pipeline</span>
+          <h2 class="display-lg">Privacy is part of the execution loop.</h2>
+          <p>
+            Every perception cycle flows through a deterministic, fail-closed pipeline. The model only receives sanitized abstractions, and actions are validated against an authoritative generation counter.
+          </p>
+        </div>
+
+        <div class="pipeline-flow">
+          <div class="pipeline-step">
+            <span class="step-num">STAGE 01</span>
+            <h3 class="step-title">DOM Perception</h3>
+            <p class="step-desc">Content script scans visible interactive elements (buttons, inputs, links) and assigns page-owned identifiers.</p>
+            <span class="step-tag">content.js</span>
+          </div>
+
+          <div class="pipeline-step">
+            <span class="step-num">STAGE 02</span>
+            <h3 class="step-title">In-Memory Capture</h3>
+            <p class="step-desc">Service worker captures viewport in memory and immediately routes it to an isolated sandbox document.</p>
+            <span class="step-tag">captureVisibleTab</span>
+          </div>
+
+          <div class="pipeline-step">
+            <span class="step-num">STAGE 03</span>
+            <h3 class="step-title">Local Computer Vision</h3>
+            <p class="step-desc">MediaPipe BlazeFace runs in WebAssembly to detect human faces and applies an opaque canvas redaction fill.</p>
+            <span class="step-tag">MediaPipe WASM</span>
+          </div>
+
+          <div class="pipeline-step">
+            <span class="step-num">STAGE 04</span>
+            <h3 class="step-title">Local OCR Processing</h3>
+            <p class="step-desc">Tesseract WebAssembly runs strictly on the redacted canvas to extract bounded local text (&lt;500 chars).</p>
+            <span class="step-tag">Tesseract WASM</span>
+          </div>
+
+          <div class="pipeline-step">
+            <span class="step-num">STAGE 05</span>
+            <h3 class="step-title">PII Sanitization</h3>
+            <p class="step-desc">DOM and OCR text are scanned for regex patterns and replaced with synthetic tokens (<code class="font-code">[EMAIL REDACTED]</code>).</p>
+            <span class="step-tag">Sanitizer</span>
+          </div>
+
+          <div class="pipeline-step">
+            <span class="step-num">STAGE 06</span>
+            <h3 class="step-title">Model Dispatch</h3>
+            <p class="step-desc">Sanitized context is routed to the configured provider (Gemini, Groq, OpenRouter, or Local Model).</p>
+            <span class="step-tag">Provider Adapter</span>
+          </div>
+
+          <div class="pipeline-step">
+            <span class="step-num">STAGE 07</span>
+            <h3 class="step-title">Action Firewall</h3>
+            <p class="step-desc">The model's proposed intent is validated: allowed action (click/type/scroll), valid generation, target is not a password field.</p>
+            <span class="step-tag">validate.js</span>
+          </div>
+
+          <div class="pipeline-step">
+            <span class="step-num">STAGE 08</span>
+            <h3 class="step-title">Safe DOM Execution</h3>
+            <p class="step-desc">Synthetic events dispatch to the grounded DOM node, followed by mandatory re-observation and loop detection.</p>
+            <span class="step-tag">execute.js</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════════════════════════════════════════════════════════════
+         PRIVACY ARCHITECTURE (DEEP-DIVE CARDS)
+         ═════════════════════════════════════════════════════════════════ -->
+    <section id="privacy" class="section section-cream">
+      <div class="container">
+        <div class="section-header text-center">
+          <span class="caption-uppercase eyebrow" style="color: var(--color-primary);">Privacy Architecture</span>
+          <h2 class="display-lg">Device-local protections before network access.</h2>
+          <p>
+            We don't rely on policy promises or cloud redaction filters. The privacy barrier runs directly inside your browser process.
+          </p>
+        </div>
+
+        <div class="privacy-grid">
+          <div class="privacy-card">
+            <div class="card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+            </div>
+            <h3>Local Face Detection</h3>
+            <p>
+              MediaPipe BlazeFace executes locally via WebAssembly inside an isolated Chrome Offscreen Document. Detected human faces are masked with solid fills on a local HTML canvas before any visual payload is constructed.
+            </p>
+            <div class="tech-meta">Runtime: WebAssembly &bull; Median: 11.8 ms</div>
+          </div>
+
+          <div class="privacy-card">
+            <div class="card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+            </div>
+            <h3>Local WebAssembly OCR</h3>
+            <p>
+              Tesseract.js extracts text on-device. Crucially, OCR runs exclusively on the <em>already-redacted</em> canvas, ensuring masked sensitive visual regions can never produce OCR tokens. Raw OCR is strictly bounded.
+            </p>
+            <div class="tech-meta">Runtime: Tesseract.js WASM &bull; Warm: 61.2 ms</div>
+          </div>
+
+          <div class="privacy-card">
+            <div class="card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <h3>Category Token Sanitization</h3>
+            <p>
+              Emails, telephone numbers, credit card sequences, and sensitive DOM input attributes are identified client-side and substituted with synthetic markers (<code class="font-code">[EMAIL REDACTED]</code>). The model reasons over structure, not secrets.
+            </p>
+            <div class="tech-meta">Coverage: Email, Phone, Numbers, Passwords</div>
+          </div>
+
+          <div class="privacy-card">
+            <div class="card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            </div>
+            <h3>Generation Isolation</h3>
+            <p>
+              Every page navigation or DOM state shift increments a monotonic generation counter. Context or model actions from previous generations are rejected immediately (<code class="font-code">STALE_GENERATION</code>), preventing stale execution races.
+            </p>
+            <div class="tech-meta">Guarantees: Tab Isolation, Fail-Closed</div>
+          </div>
+
+          <div class="privacy-card">
+            <div class="card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            </div>
+            <h3>Page-Owned ElementRegistry</h3>
+            <p>
+              The AI never injects CSS or XPath selectors. Instead, interactive elements are registered into a local map (<code class="font-code">el_1</code>..<code class="font-code">el_N</code>). The grounding layer maps intents back to active, verified DOM nodes.
+            </p>
+            <div class="tech-meta">Protection: Zero Selector Injection</div>
+          </div>
+
+          <div class="privacy-card">
+            <div class="card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <h3>Strict Action Firewall</h3>
+            <p>
+              Actions are strictly restricted to <code class="font-code">click</code>, <code class="font-code">type</code>, and <code class="font-code">scroll</code>. Dynamic execution (<code class="font-code">eval</code>, <code class="font-code">new Function</code>), DevTools commands, and extension API access are blocked by invariant.
+            </p>
+            <div class="tech-meta">Firewall latency: 0.8 ms &bull; 0 Arbitrary JS</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════════════════════════════════════════════════════════════
+         SIGNATURE SHOWCASE: "WHAT AI SEES"
+         Dark Product Surface Console (#181715)
+         ═════════════════════════════════════════════════════════════════ -->
+    <section id="what-ai-sees" class="section section-dark">
+      <div class="container">
+        <div class="section-header text-center">
+          <span class="caption-uppercase eyebrow" style="color: var(--color-primary);">Full Transparency</span>
+          <h2 class="display-lg" style="color: var(--color-on-dark);">What the AI actually receives.</h2>
+          <p>
+            Inspect the exact sanitized payload dispatched to the model. The raw webpage never leaves your machine.
+          </p>
+        </div>
+
+        <div class="what-ai-sees-console">
+          <div class="console-topbar">
+            <div class="console-title-group">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5db872" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span style="font-weight: 600; font-size: 1rem; color: var(--color-on-dark);">WHAT AI SEES</span>
+            </div>
+            <span class="badge badge-success">PROTECTED LOCALLY</span>
+          </div>
+
+          <div class="console-stats-bar">
+            <div class="stat-box">
+              <span class="label">Interactive Elements</span>
+              <span class="stat-val">34 Registered</span>
+            </div>
+            <div class="stat-box">
+              <span class="label">Visual Processing</span>
+              <span class="stat-val text-green">Face Masked</span>
+            </div>
+            <div class="stat-box">
+              <span class="label">Local OCR</span>
+              <span class="stat-val">122 Chars (Bounded)</span>
+            </div>
+            <div class="stat-box">
+              <span class="label">Raw Viewport</span>
+              <span class="stat-val text-green">Not Exposed</span>
+            </div>
+          </div>
+
+          <div class="console-body-grid">
+            <div class="console-json-viewer">
+              <pre><code>{
+  "tabId": 114845892,
+  "generation": 3,
+  "url": "https://example.com/portfolio",
+  "sanitizedText": "Welcome to [NAME REDACTED]'s page. Contact me at [EMAIL REDACTED] or connect on LinkedIn.",
+  "detections": [
+    { "type": "NAME", "confidence": 0.95 },
+    { "type": "EMAIL", "confidence": 0.99 }
+  ],
+  "elements": [
+    { "id": "el_1", "role": "link", "text": "About", "bounds": [120, 24, 60, 20] },
+    { "id": "el_14", "role": "link", "text": "Skills", "bounds": [190, 24, 55, 20] },
+    { "id": "el_22", "role": "button", "text": "Contact", "bounds": [260, 20, 80, 28] }
+  ],
+  "visualArtifact": "data:image/png;base64,...[REDACTED_FACE_CANVAS_ONLY]",
+  "rawScreenshotExposed": false,
+  "rawOcrExposed": false
+}</code></pre>
+            </div>
+
+            <div class="console-preview-col">
+              <div class="preview-card">
+                <h4>
+                  <span class="status-dot dot-green"></span>
+                  Visual Privacy Verification
+                </h4>
+                <p>
+                  Screenshots are held strictly in browser memory. MediaPipe places an opaque bounding rectangle over detected facial landmarks before the image is encoded. If a text-only model is selected, <strong>zero visual bytes</strong> are transmitted.
+                </p>
+              </div>
+
+              <div class="preview-card">
+                <h4>
+                  <span class="status-dot dot-green"></span>
+                  ElementRegistry Binding
+                </h4>
+                <p>
+                  Target <code class="font-code" style="color: var(--color-primary);">el_14</code> resolves directly to the DOM <code class="font-code">&lt;a href="#skills"&gt;</code> node. The model cannot query external elements or inject arbitrary script tags.
+                </p>
+              </div>
+
+              <div class="preview-card">
+                <h4>
+                  <span class="status-dot dot-green"></span>
+                  Authoritative Generation Sync
+                </h4>
+                <p>
+                  Every request carries <code class="font-code" style="color: var(--color-accent-amber);">generation=3</code>. If the page navigates, the background worker discards any arriving model intent as stale.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════════════════════════════════════════════════════════════
+         SAFE AGENT ACTIONS & ACTION FIREWALL
+         ═════════════════════════════════════════════════════════════════ -->
+    <section class="section section-cream">
+      <div class="container">
+        <div class="section-header text-center">
+          <span class="caption-uppercase eyebrow" style="color: var(--color-primary);">Action Firewall</span>
+          <h2 class="display-lg">The model proposes. The firewall verifies.</h2>
+          <p>
+            Browser execution is isolated behind an authoritative validation layer. No arbitrary scripts, no ungrounded clicks, and no runaway loops.
+          </p>
+        </div>
+
+        <div class="firewall-grid">
+          <div class="firewall-box firewall-allowed">
+            <div class="firewall-box-header">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#5db872" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              <div>
+                <strong style="color: var(--color-success); font-size: 1.0625rem;">Allowlisted Actions</strong>
+                <span style="font-size: 0.75rem; color: var(--color-muted); display: block;">Permitted only after grounding & generation verification</span>
+              </div>
+            </div>
+            <ul class="firewall-list">
+              <li class="firewall-item">
+                <code class="font-code" style="font-weight: 600;">click</code>
+                <span>Dispatches synthetic <code class="font-code">pointerdown &rarr; mousedown &rarr; mouseup &rarr; click</code> sequence to grounded <code class="font-code">el_X</code> target.</span>
+              </li>
+              <li class="firewall-item">
+                <code class="font-code" style="font-weight: 600;">type</code>
+                <span>Focuses input and emits trusted <code class="font-code">input</code> and <code class="font-code">change</code> events. <strong>Password fields are blocked.</strong></span>
+              </li>
+              <li class="firewall-item">
+                <code class="font-code" style="font-weight: 600;">scroll</code>
+                <span>Smooth scroll within window bounds (<code class="font-code">up</code>, <code class="font-code">down</code>) to reveal interactive viewport content.</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="firewall-box firewall-blocked">
+            <div class="firewall-box-header">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c64545" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <div>
+                <strong style="color: var(--color-error); font-size: 1.0625rem;">Blocked By Invariant</strong>
+                <span style="font-size: 0.75rem; color: var(--color-muted); display: block;">Strictly rejected without browser mutation</span>
+              </div>
+            </div>
+            <ul class="firewall-list">
+              <li class="firewall-item">
+                <code class="font-code" style="font-weight: 600;">eval() / JS</code>
+                <span>Arbitrary code execution, <code class="font-code">new Function</code>, and <code class="font-code">&lt;script&gt;</code> injection are permanently prohibited.</span>
+              </li>
+              <li class="firewall-item">
+                <code class="font-code" style="font-weight: 600;">Arbitrary Selectors</code>
+                <span>Raw CSS selectors or XPath strings from the model are rejected immediately by the grounding layer.</span>
+              </li>
+              <li class="firewall-item">
+                <code class="font-code" style="font-weight: 600;">Extension APIs</code>
+                <span>Model cannot access cookies, passwords, history, browser extensions, or Chrome DevTools protocol.</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════════════════════════════════════════════════════════════
+         ARCHITECTURE BLUEPRINT
+         ═════════════════════════════════════════════════════════════════ -->
+    <section id="architecture" class="section section-soft">
+      <div class="container">
+        <div class="section-header text-center">
+          <span class="caption-uppercase eyebrow" style="color: var(--color-primary);">System Architecture</span>
+          <h2 class="display-lg">Pure client-side execution. Zero intermediate servers.</h2>
+          <p>
+            The entire perception, sanitization, grounding, and firewall runtime runs directly within Google Chrome Manifest V3 boundaries.
+          </p>
+        </div>
+
+        <div style="background: var(--color-surface-card); border: 1px solid var(--color-hairline); border-radius: var(--radius-xl); padding: var(--space-8); overflow-x: auto;">
+          <pre class="font-code" style="font-size: 0.8125rem; line-height: 1.6; color: var(--color-ink); margin: 0;">
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                              USER / BROWSER INTERACTION                                │
+│   [ User Request: "Go to his Skills section" ]                                        │
+│                        │                                                               │
+│                        ▼                                                               │
+│              ┌──────────────────┐                                                      │
+│              │   ACTIVE DOM     │                                                      │
+│              └─────────┬────────┘                                                      │
+└────────────────────────┼───────────────────────────────────────────────────────────────┘
+                         │
+        ┌────────────────┴────────────────────────┐
+        ▼                                         ▼
+┌──────────────────────────────┐ ┌───────────────────────────────────────┐
+│ DOM PERCEPTION (content.js)  │ │ SCREENSHOT CAPTURE (background.js)    │
+│ - Traverses interactive DOM  │ │ - Captures viewport in memory via     │
+│ - Registers nodes to el_1..N │ │   chrome.tabs.captureVisibleTab()     │
+└──────────────┬───────────────┘ └──────────────────┬────────────────────┘
+               │                                    │
+               └──────────────────┬─────────────────┘
+                                  ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│            LOCAL PRIVACY ENGINE (Chrome Offscreen Document Sandbox)                    │
+│                                                                                        │
+│   ┌─────────────────────┐   ┌────────────────────┐   ┌───────────────────────┐         │
+│   │ MediaPipe BlazeFace │──▶│  Canvas Redaction  │──▶│  Tesseract.js Local   │         │
+│   │   (WebAssembly)     │   │(Solid Box Over Face│   │  OCR on Redacted View │         │
+│   └─────────────────────┘   └────────────────────┘   └───────────┬───────────┘         │
+│                                                                  │                     │
+│   ┌─────────────────────────────────────────────────────────┐    │                     │
+│   │ PII Detection & Context Sanitization (content.js)       │◀───┘                     │
+│   │ - Regex tokenization ([EMAIL REDACTED], [PHONE REDACTED])│                         │
+│   │ - Bounds OCR text length (&lt;500 chars)                   │                         │
+│   └──────────────────────────┬──────────────────────────────┘                          │
+└──────────────────────────────┼─────────────────────────────────────────────────────────┘
+                               │
+                               │  [ STRICT NETWORK BOUNDARY ]
+                               │  - Raw screenshot: NEVER TRANSMITTED
+                               │  - Raw OCR text:   NEVER TRANSMITTED
+                               ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│              MODEL PROVIDER ADAPTER (Privileged Service Worker)                        │
+│   Google Gemini / Groq / OpenRouter / Local Model                                      │
+│   - Receives sanitized text tokens & redacted visual artifact                          │
+│   - Returns single structured JSON intent: { type: "click", elementId: "el_14" }      │
+└──────────────────────────────┬─────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│               GROUNDING & FIREWALL ENGINE (content.js)                                 │
+│   - ElementRegistry resolves el_14 to active &lt;a href="#skills"&gt; node                  │
+│   - Action Firewall verifies: allowed action, generation fresh, tab active            │
+│   - Dispatches safe synthetic event sequence & trigger re-observation                 │
+└────────────────────────────────────────────────────────────────────────────────────────┘</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════════════════════════════════════════════════════════════
+         VERIFIED BENCHMARKS & STATS
+         ═════════════════════════════════════════════════════════════════ -->
+    <section class="section section-cream">
+      <div class="container">
+        <div class="section-header text-center">
+          <span class="caption-uppercase eyebrow" style="color: var(--color-primary);">Empirical Benchmarks</span>
+          <h2 class="display-lg">Sub-millisecond safety. Zero data leaks.</h2>
+          <p>
+            Measured in Google Chrome Manifest V3 using automated Puppeteer E2E harnesses and regression suites.
+          </p>
+        </div>
+
+        <div class="benchmarks-grid">
+          <div class="benchmark-card">
+            <div class="metric-val">1.4 ms</div>
+            <div class="metric-label">DOM Perception</div>
+            <div class="metric-sub">Median element extraction latency</div>
+          </div>
+
+          <div class="benchmark-card">
+            <div class="metric-val">11.8 ms</div>
+            <div class="metric-label">Face Redaction</div>
+            <div class="metric-sub">MediaPipe BlazeFace WASM detection</div>
+          </div>
+
+          <div class="benchmark-card">
+            <div class="metric-val">61.2 ms</div>
+            <div class="metric-label">Local Warm OCR</div>
+            <div class="metric-sub">Tesseract WASM on redacted canvas</div>
+          </div>
+
+          <div class="benchmark-card">
+            <div class="metric-val">0.8 ms</div>
+            <div class="metric-label">Action Firewall</div>
+            <div class="metric-sub">Validation & generation resolution</div>
+          </div>
+        </div>
+
+        <div style="margin-top: var(--space-8); padding: var(--space-6); background: var(--color-surface-card); border: 1px solid var(--color-hairline); border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-around; flex-wrap: wrap; gap: var(--space-4);">
+          <div style="text-align: center;">
+            <div style="font-weight: 700; font-size: 1.5rem; color: var(--color-success);">0</div>
+            <div style="font-size: 0.8125rem; color: var(--color-muted);">Raw Screenshot Leaks</div>
+          </div>
+          <div style="height: 36px; width: 1px; background: var(--color-hairline);"></div>
+          <div style="text-align: center;">
+            <div style="font-weight: 700; font-size: 1.5rem; color: var(--color-success);">0</div>
+            <div style="font-size: 0.8125rem; color: var(--color-muted);">Raw OCR Leaks</div>
+          </div>
+          <div style="height: 36px; width: 1px; background: var(--color-hairline);"></div>
+          <div style="text-align: center;">
+            <div style="font-weight: 700; font-size: 1.5rem; color: var(--color-success);">0</div>
+            <div style="font-size: 0.8125rem; color: var(--color-muted);">API Key Leaks</div>
+          </div>
+          <div style="height: 36px; width: 1px; background: var(--color-hairline);"></div>
+          <div style="text-align: center;">
+            <div style="font-weight: 700; font-size: 1.5rem; color: var(--color-success);">252 / 252</div>
+            <div style="font-size: 0.8125rem; color: var(--color-muted);">Automated Tests Passed</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════════════════════════════════════════════════════════════
+         INSTALLATION SECTION (01 to 08 STEP-BY-STEP)
+         ═════════════════════════════════════════════════════════════════ -->
+    <section id="installation" class="section section-soft">
+      <div class="container">
+        <div class="section-header text-center">
+          <span class="caption-uppercase eyebrow" style="color: var(--color-primary);">Getting Started</span>
+          <h2 class="display-lg">Install in Google Chrome in under two minutes.</h2>
+          <p>
+            Distributed as a verified Manifest V3 extension. No compilation or node server required to run.
+          </p>
+        </div>
+
+        <div class="install-steps-grid">
+          <div class="install-step-card">
+            <span class="step-index">01</span>
+            <h3>Get the Extension</h3>
+            <p>Clone the repository or download the source folder directly from GitHub.</p>
+            <code>git clone https://github.com/SAMIHZS/SIH2026.git</code>
+          </div>
+
+          <div class="install-step-card">
+            <span class="step-index">02</span>
+            <h3>Open Extensions</h3>
+            <p>In Google Chrome, navigate to the extensions management console.</p>
+            <code>chrome://extensions</code>
+          </div>
+
+          <div class="install-step-card">
+            <span class="step-index">03</span>
+            <h3>Enable Developer Mode</h3>
+            <p>Toggle the <strong>Developer mode</strong> switch in the upper-right corner of the page.</p>
+          </div>
+
+          <div class="install-step-card">
+            <span class="step-index">04</span>
+            <h3>Click Load Unpacked</h3>
+            <p>Click the <strong>Load unpacked</strong> button in the top-left toolbar.</p>
+          </div>
+
+          <div class="install-step-card">
+            <span class="step-index">05</span>
+            <h3>Select Folder</h3>
+            <p>Select the <code>extension</code> directory from your cloned/extracted repository.</p>
+          </div>
+
+          <div class="install-step-card">
+            <span class="step-index">06</span>
+            <h3>Pin the Extension</h3>
+            <p>Click Chrome's puzzle icon on your toolbar and pin <strong>SIH Privacy Assistant</strong>.</p>
+          </div>
+
+          <div class="install-step-card">
+            <span class="step-index">07</span>
+            <h3>Configure Provider</h3>
+            <p>Right-click the icon &rarr; <strong>Options</strong> to choose Gemini, Groq, or OpenRouter.</p>
+          </div>
+
+          <div class="install-step-card">
+            <span class="step-index">08</span>
+            <h3>Open Side Panel</h3>
+            <p>Open Chrome's Side Panel, select <strong>Privacy Assistant</strong>, and enjoy private browsing!</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════════════════════════════════════════════════════════════
+         EXTENSION UI SHOWCASE (CURRENT FINALIZED UI)
+         ═════════════════════════════════════════════════════════════════ -->
+    <section class="section section-cream">
+      <div class="container">
+        <div class="section-header text-center">
+          <span class="caption-uppercase eyebrow" style="color: var(--color-primary);">Inside the Assistant</span>
+          <h2 class="display-lg">The extension interface.</h2>
+          <p>
+            Explore the real Chrome extension sidebar. Built with our editorial warm cream canvas, coral action buttons, and dark product consoles for full perception transparency.
+          </p>
+        </div>
+
+        <div class="gallery-wrapper">
+          <div class="gallery-tabs">
+            <button class="gallery-tab-btn active" data-target="gallery-chat">Assistant Chat</button>
+            <button class="gallery-tab-btn" data-target="gallery-context">Structured Context</button>
+            <button class="gallery-tab-btn" data-target="gallery-privacy">Privacy Evidence</button>
+            <button class="gallery-tab-btn" data-target="gallery-settings">Provider Settings</button>
+          </div>
+
+          <div id="galleryDescription" class="gallery-description">
+            The main interaction surface for browser tasks with local status indication and prompt execution.
+          </div>
+
+          <div class="gallery-display">
+            <div id="gallery-chat" class="gallery-image-panel active">
+              <img src="assets/screenshots/sidebar_chat_view.png" alt="SIH Assistant Chat Interface — Default Task Surface" loading="lazy">
+            </div>
+            <div id="gallery-context" class="gallery-image-panel">
+              <img src="assets/screenshots/sidebar_context_view.png" alt="Structured Context View — Interactive Elements & Local Perception" loading="lazy">
+            </div>
+            <div id="gallery-privacy" class="gallery-image-panel">
+              <img src="assets/screenshots/sidebar_privacy_view.png" alt="Privacy Evidence View — Face Redaction & PII Masking" loading="lazy">
+            </div>
+            <div id="gallery-settings" class="gallery-image-panel">
+              <img src="assets/screenshots/sidebar_settings_view.png" alt="Provider Settings — Configured LLM Models & Capabilities" loading="lazy">
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════════════════════════════════════════════════════════════
+         FAQ SECTION
+         ═════════════════════════════════════════════════════════════════ -->
+    <section id="faq" class="section section-soft">
+      <div class="container">
+        <div class="section-header text-center">
+          <span class="caption-uppercase eyebrow" style="color: var(--color-primary);">Common Questions</span>
+          <h2 class="display-lg">Frequently Asked Questions</h2>
+          <p>
+            Clear, factual answers regarding privacy boundaries, models, and security mechanics.
+          </p>
+        </div>
+
+        <div class="faq-list">
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>What does the AI model actually receive?</span>
+              <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="faq-answer">
+              The model receives sanitized text tokens where detected PII (emails, telephone numbers, card sequences) is replaced with synthetic categories (<code class="font-code">[EMAIL REDACTED]</code>), a list of registered interactive element targets (<code class="font-code">el_1</code>..<code class="font-code">el_N</code>), bounded OCR text (&lt;500 chars), and—only if vision is enabled—a locally redacted screenshot where human faces are covered by solid fills.
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Is my raw viewport screenshot ever uploaded to the cloud?</span>
+              <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="faq-answer">
+              <strong>No.</strong> Viewport capture via <code class="font-code">captureVisibleTab</code> exists solely in browser memory and is transferred directly to an isolated Chrome Offscreen Document. The unredacted screenshot is never saved to disk and never transmitted over the network.
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Where does OCR and face detection run?</span>
+              <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="faq-answer">
+              Both run 100% device-locally using WebAssembly. MediaPipe BlazeFace detects faces, and Tesseract.js runs local OCR. There are no intermediate Python or cloud vision servers.
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Can the AI execute arbitrary scripts or steal my cookies?</span>
+              <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="faq-answer">
+              <strong>No.</strong> The action firewall strictly rejects <code class="font-code">eval</code>, <code class="font-code">new Function</code>, script tags, and arbitrary CSS selectors. The model can only propose <code class="font-code">click</code>, <code class="font-code">type</code>, or <code class="font-code">scroll</code> on page-registered element IDs. Password inputs are blocked unconditionally.
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Which AI providers are supported?</span>
+              <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="faq-answer">
+              The extension includes built-in provider adapters for <strong>Google Gemini</strong>, <strong>Groq</strong>, <strong>OpenRouter</strong>, and <strong>Local Model</strong> endpoints (such as Ollama or local OpenAI-compatible APIs). API keys are stored securely in <code class="font-code">chrome.storage.local</code>.
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>How does stale context protection work?</span>
+              <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="faq-answer">
+              The background service worker maintains a monotonic generation counter. If a page navigates or reloads while an action is in-flight, the action generation will not match the current page generation. The action is discarded immediately (<code class="font-code">STALE_GENERATION</code>) without touching the new page.
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Is this available on the Chrome Web Store?</span>
+              <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="faq-answer">
+              The project is currently in <strong>Release Candidate (v1.6.0)</strong> and distributed directly via GitHub source and release archives for developer evaluation and SIH demonstration.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════════════════════════════════════════════════════════════
+         PRE-FOOTER CTA BAND (CORAL CALLOUT)
+         ═════════════════════════════════════════════════════════════════ -->
+    <section class="section section-cream">
+      <div class="container">
+        <div class="cta-band">
+          <h2>Give your browser an assistant. Not unrestricted access.</h2>
+          <p>
+            Experience a browser agent that respects your personal privacy. Built for Chrome Manifest V3 with verified client-side protections.
+          </p>
+          <div class="cta-actions">
+            <button class="btn btn-coral-inverted js-download-btn" aria-haspopup="dialog">
+              <span>Download Extension</span>
+            </button>
+            <a href="https://github.com/SAMIHZS/SIH2026" class="btn btn-secondary-on-dark" target="_blank" rel="noopener noreferrer">
+              <span>View Source on GitHub</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ═════════════════════════════════════════════════════════════════
+       DOWNLOAD EXTENSION MODAL DIALOG
+       ═════════════════════════════════════════════════════════════════ -->
+  <div id="downloadModal" class="download-modal-backdrop" aria-hidden="true">
+    <div class="download-modal-card" role="dialog" aria-modal="true" aria-labelledby="downloadModalTitle">
+      <div class="download-modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div class="brand-logo-mark" style="width: 32px; height: 32px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </div>
+          <div>
+            <h3 id="downloadModalTitle" class="title-md">Download Extension</h3>
+            <span class="caption" style="color: var(--color-muted);">SIH26171 Chrome Extension</span>
+          </div>
+        </div>
+        <button id="closeDownloadModalBtn" class="btn-icon" aria-label="Close dialog">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="download-modal-body">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <span class="badge badge-coral">Release Candidate v1.6.0</span>
+          <span class="badge badge-success">252/252 Tests Passing</span>
+        </div>
+        <p style="margin-bottom: 14px; font-size: 0.9375rem; color: var(--color-body); line-height: 1.6;">
+          Official pre-packaged release ZIP archives will be distributed via GitHub Releases once published.
+        </p>
+        <p style="margin-bottom: 20px; font-size: 0.875rem; color: var(--color-muted); line-height: 1.6;">
+          You can run the complete, verified extension immediately today by loading it unpacked in Google Chrome (Developer mode).
+        </p>
+
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <a href="#installation" id="modalInstallLink" class="btn btn-primary" style="width: 100%;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span>View Installation Guide (Unpacked)</span>
+          </a>
+          <a href="https://github.com/SAMIHZS/SIH2026/releases" id="modalReleasesLink" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="width: 100%;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+            <span>View GitHub Releases</span>
+          </a>
+          <a href="https://github.com/SAMIHZS/SIH2026" id="modalSourceLink" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="width: 100%;">
+            <span>Browse Source Code</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════════
+       FOOTER
+       ═════════════════════════════════════════════════════════════════ -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="./" class="brand-link" style="color: var(--color-on-dark);">
+            <div class="brand-logo-mark" style="background: var(--color-surface-dark-elevated);">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#cc785c" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+            </div>
+            <div class="brand-name">
+              <span class="brand-title">SIH26171</span>
+              <span class="brand-sub" style="color: var(--color-on-dark-soft);">Privacy Assistant</span>
+            </div>
+          </a>
+          <p style="margin-top: 12px;">
+            A privacy-preserving browser AI assistant built for Google Chrome Manifest V3. Client-side perception, local face masking, local OCR, and strict action firewalling.
+          </p>
+        </div>
+
+        <div class="footer-col">
+          <h4>Navigation</h4>
+          <ul class="footer-links">
+            <li><a href="#problem">The Problem</a></li>
+            <li><a href="#how-it-works">Pipeline</a></li>
+            <li><a href="#privacy">Privacy Model</a></li>
+            <li><a href="#what-ai-sees">What AI Sees</a></li>
+            <li><a href="#architecture">Architecture</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <ul class="footer-links">
+            <li><a href="#installation">Installation Guide</a></li>
+            <li><a href="#faq">Frequently Asked Questions</a></li>
+            <li><a href="https://github.com/SAMIHZS/SIH2026/blob/main/docs/THREAT_MODEL.md" target="_blank" rel="noopener noreferrer">Threat Model</a></li>
+            <li><a href="https://github.com/SAMIHZS/SIH2026/blob/main/docs/FINAL_ARCHITECTURE.md" target="_blank" rel="noopener noreferrer">Technical Architecture</a></li>
+            <li><a href="https://github.com/SAMIHZS/SIH2026" target="_blank" rel="noopener noreferrer">GitHub Repository</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Release Info</h4>
+          <ul class="footer-links">
+            <li><span style="color: var(--color-on-dark);">Version:</span> v1.6.0 (RC)</li>
+            <li><span style="color: var(--color-on-dark);">Platform:</span> Chrome MV3</li>
+            <li><span style="color: var(--color-on-dark);">Backend:</span> Pure Client-Side</li>
+            <li><span style="color: var(--color-on-dark);">License:</span> Open Source</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>
+          &copy; 2026 SIH26171 Privacy-Preserving Browser Assistant. All rights reserved.
+        </div>
+        <div class="footer-status-pill">
+          <span class="status-dot dot-green"></span>
+          <span>All 252 Tests Passing (Zero Leaks)</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

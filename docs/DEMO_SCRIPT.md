@@ -66,10 +66,10 @@
 
 ### [2:35 – 3:00] Conclusion & Verified Results
 
-*(Screen displays the 200/200 test results and real Chrome leak audit)*
+*(Screen displays the 252/252 test results and real Chrome leak audit)*
 
 > "To guarantee our claims, our system has undergone extensive empirical verification:
-> - **P1 to P200**: All 200 automated regression tests pass with 0 failures.
+> - **P1 to P252**: All 252 automated regression tests pass with 0 failures.
 > - In live Chrome testing across 24 release candidate checkpoints, our console leak audit measured exactly **zero** screenshot leaks, **zero** OCR text leaks, and **zero** API key exposures.
 > - Autonomous 3-step transactions execute in a median of 810 milliseconds.
 > 
