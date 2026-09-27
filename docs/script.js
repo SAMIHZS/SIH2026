@@ -12,7 +12,7 @@ const SITE_CONFIG = {
   version: "v1.6.0 (Release Candidate)",
   githubUrl: "https://github.com/SAMIHZS/SIH2026",
   releaseUrl: "https://github.com/SAMIHZS/SIH2026/releases",
-  downloadUrl: null, // Set to release asset URL (e.g. "https://github.com/SAMIHZS/SIH2026/releases/download/v1.6.0/extension.zip") once published
+  downloadUrl: "https://github.com/SAMIHZS/SIH2026/releases/download/v1.6.0/SIH26171_v1.6.0.zip",
   issuesUrl: "https://github.com/SAMIHZS/SIH2026/issues",
   status: "Release Candidate Verified (P1–P252 PASS)"
 };
